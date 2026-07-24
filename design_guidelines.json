@@ -1,0 +1,132 @@
+{
+  "theme": {
+    "mode": "light",
+    "rationale": "Light theme is preferable for a lively adventure park CRM that will likely be used in daylight/outdoors by staff, providing better visibility and matching the energetic, vibrant vibe."
+  },
+  "typography": {
+    "headings": {
+      "family": "Nunito, sans-serif",
+      "weights": ["800", "900"],
+      "tracking": "tracking-tight",
+      "rationale": "Nunito provides a rounded, friendly, and playful look suitable for an adventure park without losing readability."
+    },
+    "body": {
+      "family": "Nunito, sans-serif",
+      "weights": ["400", "500", "600", "700"],
+      "tracking": "tracking-normal"
+    },
+    "labels": {
+      "style": "uppercase text-xs font-bold tracking-[0.2em]"
+    },
+    "setup_instruction": "Add Google fonts Nunito in public/index.html and update tailwind.config.js theme.fontFamily.sans"
+  },
+  "colors": {
+    "archetype": "ARCHETYPE 6: VIBRANT PLAY",
+    "rationale": "Perfect for a funland adventure park, communicating energy, approachability, and excitement.",
+    "palette": {
+      "background": "#F0F8FF",
+      "foreground": "#0A192F",
+      "primary": "#FFB703",
+      "primary_foreground": "#0A192F",
+      "secondary": "#219EBC",
+      "secondary_foreground": "#FFFFFF",
+      "accent": "#FB8500",
+      "accent_foreground": "#FFFFFF",
+      "muted": "#E0F2FE",
+      "muted_foreground": "#475569",
+      "border": "#BAE6FD",
+      "success": "#34D399",
+      "warning": "#FBBF24",
+      "danger": "#EF4444"
+    },
+    "tailwind_css_variables": {
+      "--background": "210 100% 97%",
+      "--foreground": "216 65% 11%",
+      "--primary": "43 100% 51%",
+      "--primary-foreground": "216 65% 11%",
+      "--secondary": "192 70% 43%",
+      "--secondary-foreground": "0 0% 100%",
+      "--accent": "28 100% 49%",
+      "--accent-foreground": "0 0% 100%",
+      "--muted": "204 100% 94%",
+      "--muted-foreground": "215 19% 35%",
+      "--border": "204 100% 86%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "216 65% 11%",
+      "--popover": "0 0% 100%",
+      "--popover-foreground": "216 65% 11%"
+    }
+  },
+  "spacing_and_layout": {
+    "strategy": "High Density Grid for CRM mixed with generous padding for interactive elements to suit mobile devices.",
+    "padding": "Generous spacing. Use p-4 to p-8 for containers. Buttons should have ample touch targets for staff mobile usage.",
+    "grid": {
+      "dashboard": "grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+      "forms": "grid-cols-1 gap-6"
+    },
+    "border_radius": "Subtle roundness, max 12px border-radius (rounded-xl) for cards to maintain structural CRM look while being friendly. Rounded-full for buttons."
+  },
+  "surface_strategies": {
+    "cards": "Neumorphism mix: Flat white background (bg-card), 1px subtle border (border-border), with a soft shadow (shadow-sm). On hover: shadow-md and slightly lift (-translate-y-1).",
+    "headers": "Solid surface with a subtle bottom border to prevent visual refraction of data."
+  },
+  "component_instructions": {
+    "buttons": "Pill-shaped (rounded-full) for primary CTAs. Sharp or slightly rounded (rounded-md) for secondary actions like table row edits. Explicit hover states (e.g. hover:bg-primary/90).",
+    "forms": "Use Shadcn UI forms. Inputs should have bg-white, soft border, focus:ring-2 focus:ring-secondary.",
+    "tables": "Shadcn UI table. Clean, flat rows, zebra striping optional. Actions column right-aligned.",
+    "badges": "Rounded-full for status indicators (e.g., 'Paid', 'Pending', 'Active Game').",
+    "toasts": "Use Sonner for notifications (e.g., 'Bill Generated', 'Attendance Logged')."
+  },
+  "motion": {
+    "hover_states": "All buttons, links, and cards must have transition-transform or transition-colors.",
+    "entrance": "Staggered fade-in for list items and table rows.",
+    "feedback": "Micro-interactions on buttons (scale down slightly on active/click)."
+  },
+  "images": {
+    "amusement_park_hero": {
+      "url": "https://images.pexels.com/photos/17467601/pexels-photo-17467601.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Colorful ferris wheel and rides, used for login background or marketing dashboard header."
+    },
+    "park_aerial_view": {
+      "url": "https://images.pexels.com/photos/12794397/pexels-photo-12794397.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Aerial view of amusement park, useful for dashboard welcome widget."
+    },
+    "arcade_games": {
+      "url": "https://images.unsplash.com/photo-1511512578047-dfb367046420?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwxfHxhcmNhZGUlMjBnYW1lc3xlbnwwfHx8fDE3ODQ5MjE1ODB8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Arcade games room, suitable as a thumbnail for games catalog."
+    },
+    "happy_employee_1": {
+      "url": "https://images.pexels.com/photos/12902933/pexels-photo-12902933.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Smiling employee portrait, used for staff attendance or profile."
+    }
+  },
+  "icons_and_assets": {
+    "library": "lucide-react",
+    "rationale": "Already installed, clean and versatile for dense dashboards.",
+    "usage": "Use icons for sidebar nav, table actions, and KPI cards."
+  },
+  "accessibility": {
+    "contrast": "Ensure text contrast against background. Text over Primary (#FFB703) should be dark foreground.",
+    "testing": "All interactive elements MUST include data-testid."
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do not center align the App container. No generic centered layouts.",
+    "Use 2-3x more spacing than feels comfortable. Prevent cramped designs.",
+    "Every interaction needs micro-animations - hover states, transitions. Static = dead.",
+    "Do not apply universal 'transition: all', target specific properties.",
+    "Do not use dark colors as gradients.",
+    "Never use AI assistant emoji characters for icons.",
+    "Use Sonner for toasts.",
+    "Prioritize using pre-existing Shadcn components from src/components/ui.",
+    "All interactive elements MUST include data-testid (e.g., data-testid='login-button').",
+    "Always explicitly set text color on hover (e.g., hover:bg-slate-900 hover:text-white).",
+    "Avoid fully transparent backgrounds for headers/dropdowns."
+  ],
+  "specific_screens_guidelines": {
+    "login": "Split screen or modal over a blurred park image. Vibrant logo/branding. Role selection (Manager vs Staff).",
+    "dashboard": "Mobile-first layout. Top row: Quick actions (New Visit, Add Inquiry). Next row: KPI cards (Today's Revenue, Footfall, Active Packages).",
+    "billing_entry": "Searchable games/packages list with '+' button. Selected items form a 'cart' view. Grand total with GST toggle. Big 'Generate Bill' button.",
+    "marketing_composer": "Card with text area, image upload stub, and 'Draft for Instagram/Facebook' or 'Broadcast WhatsApp' buttons.",
+    "attendance": "Simple 'Check In' / 'Check Out' large buttons with current time. List of recent punches."
+  }
+}
