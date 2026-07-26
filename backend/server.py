@@ -830,11 +830,25 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
 
     pipeline_games = await db.bills.find({}, {"_id": 0, "items": 1}).to_list(5000)
     game_counts = {}
+    package_counts = {}
+    total_games_played = 0
+    total_packages_sold = 0
+    games_revenue = 0.0
+    packages_revenue = 0.0
     for b in pipeline_games:
         for it in b.get("items", []):
+            qty = it.get("qty", 1)
+            line_total = float(it.get("price", 0)) * qty
             if it.get("kind") == "game":
-                game_counts[it["name"]] = game_counts.get(it["name"], 0) + it.get("qty", 1)
+                game_counts[it["name"]] = game_counts.get(it["name"], 0) + qty
+                total_games_played += qty
+                games_revenue += line_total
+            elif it.get("kind") == "package":
+                package_counts[it["name"]] = package_counts.get(it["name"], 0) + qty
+                total_packages_sold += qty
+                packages_revenue += line_total
     top_games = sorted([{"name": k, "count": v} for k, v in game_counts.items()], key=lambda x: -x["count"])[:5]
+    top_packages = sorted([{"name": k, "count": v} for k, v in package_counts.items()], key=lambda x: -x["count"])[:5]
 
     return {
         "revenue_today": round(revenue_today, 2),
@@ -845,6 +859,11 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
         "pending_prebookings": pending_prebookings,
         "revenue_trend": trend_list,
         "top_games": top_games,
+        "top_packages": top_packages,
+        "total_games_played": total_games_played,
+        "total_packages_sold": total_packages_sold,
+        "games_revenue": round(games_revenue, 2),
+        "packages_revenue": round(packages_revenue, 2),
     }
 
 @api.get("/dashboard/analytics")
@@ -895,11 +914,18 @@ async def dashboard_analytics(
     buckets_ordered = all_buckets()
     revenue_map = {k: 0.0 for k in buckets_ordered}
     footfall_map = {k: 0 for k in buckets_ordered}
+    games_map = {k: 0 for k in buckets_ordered}
+    packages_map = {k: 0 for k in buckets_ordered}
     total_revenue = 0.0
     total_footfall = 0
     total_paid = 0
     total_pending = 0
     game_counts = {}
+    package_counts = {}
+    total_games_played = 0
+    total_packages_sold = 0
+    games_revenue = 0.0
+    packages_revenue = 0.0
 
     for b in bills:
         k = bucket_key(b["created_at"])
@@ -915,11 +941,24 @@ async def dashboard_analytics(
         else:
             total_pending += 1
         for it in b.get("items", []):
+            qty = it.get("qty", 1)
+            line_total = float(it.get("price", 0)) * qty
             if it.get("kind") == "game":
-                game_counts[it["name"]] = game_counts.get(it["name"], 0) + it.get("qty", 1)
+                game_counts[it["name"]] = game_counts.get(it["name"], 0) + qty
+                total_games_played += qty
+                games_revenue += line_total
+                if k in games_map:
+                    games_map[k] += qty
+            elif it.get("kind") == "package":
+                package_counts[it["name"]] = package_counts.get(it["name"], 0) + qty
+                total_packages_sold += qty
+                packages_revenue += line_total
+                if k in packages_map:
+                    packages_map[k] += qty
 
-    trend = [{"date": k, "revenue": round(revenue_map[k], 2), "footfall": footfall_map[k]} for k in buckets_ordered]
+    trend = [{"date": k, "revenue": round(revenue_map[k], 2), "footfall": footfall_map[k], "games_played": games_map[k], "packages_sold": packages_map[k]} for k in buckets_ordered]
     top_games = sorted([{"name": k, "count": v} for k, v in game_counts.items()], key=lambda x: -x["count"])[:5]
+    top_packages = sorted([{"name": k, "count": v} for k, v in package_counts.items()], key=lambda x: -x["count"])[:5]
     unique_customers = len({b.get("customer_phone", "") for b in bills if b.get("customer_phone")})
 
     return {
@@ -932,8 +971,13 @@ async def dashboard_analytics(
         "bills_paid": total_paid,
         "bills_pending": total_pending,
         "average_bill": round(total_revenue / total_paid, 2) if total_paid else 0,
+        "total_games_played": total_games_played,
+        "total_packages_sold": total_packages_sold,
+        "games_revenue": round(games_revenue, 2),
+        "packages_revenue": round(packages_revenue, 2),
         "trend": trend,
         "top_games": top_games,
+        "top_packages": top_packages,
     }
 
 # ---------------- Marketing ----------------

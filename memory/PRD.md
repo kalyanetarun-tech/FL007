@@ -81,3 +81,10 @@ Added later:
 3. **Add employees** via Admin → Staff (each gets their own login)
 4. **Configure UPI QR** in Settings so it prints on bills
 5. When ready for social auto-sync, apply for Meta Business API access
+
+## Changelog
+### 2026-07-26 — Dashboard "Sales Mix" upgrade
+- Removed "Popular rides" leaderboard card from Dashboard
+- Added `Packages Sold` and `Games/Activities Played` cards driven by the same date-range filter as the analytics panel
+- Backend `/api/dashboard/stats` + `/api/dashboard/analytics` now return `total_packages_sold`, `total_games_played`, `packages_revenue`, `games_revenue`, `top_packages`, and per-bucket `packages_sold` / `games_played` in the trend
+- New stacked bar chart shows Packages vs Games volume per bucket, plus Top-3 packages and Top-3 games lists
