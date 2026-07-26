@@ -243,6 +243,9 @@ async def update_user(uid: str, data: UserUpdate, _: dict = Depends(require_admi
     update = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
     if "password" in update:
         update["password_hash"] = hash_pw(update.pop("password"))
+    # If role is being changed and permissions were not explicitly provided, reset perms
+    if "role" in update and "permissions" not in update:
+        update["permissions"] = ALL_PERMS if update["role"] == "admin" else DEFAULT_EMP_PERMS
     if update:
         await db.users.update_one({"id": uid}, {"$set": update})
     return await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})

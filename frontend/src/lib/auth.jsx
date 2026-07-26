@@ -13,7 +13,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem("funland_token");
     if (!token) { setLoading(false); return; }
-    api.get("/auth/me")
+    const refresh = () => api.get("/auth/me")
       .then((r) => {
         setUser(r.data);
         localStorage.setItem("funland_user", JSON.stringify(r.data));
@@ -24,6 +24,11 @@ export function AuthProvider({ children }) {
         setUser(null);
       })
       .finally(() => setLoading(false));
+    refresh();
+    // Re-sync permissions on window focus so admin edits reflect for logged-in employees
+    const onFocus = () => { if (localStorage.getItem("funland_token")) refresh(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   const login = async (email, password) => {
