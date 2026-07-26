@@ -784,7 +784,6 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
     pending_bills = await db.bills.count_documents({"payment_status": "pending"})
     pending_prebookings = await db.prebookings.count_documents({"status": {"$in": ["pending", "confirmed"]}})
 
-    # Revenue trend last 7 days
     trend = {}
     for i in range(7):
         d = (date.today() - timedelta(days=i)).isoformat()
@@ -795,7 +794,6 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
             trend[d] += b.get("total", 0)
     trend_list = [{"date": d, "revenue": round(v, 2)} for d, v in sorted(trend.items())]
 
-    # Top games
     pipeline_games = await db.bills.find({}, {"_id": 0, "items": 1}).to_list(5000)
     game_counts = {}
     for b in pipeline_games:
@@ -812,6 +810,95 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
         "pending_bills": pending_bills,
         "pending_prebookings": pending_prebookings,
         "revenue_trend": trend_list,
+        "top_games": top_games,
+    }
+
+@api.get("/dashboard/analytics")
+async def dashboard_analytics(
+    from_date: str,
+    to_date: str,
+    granularity: Literal["day", "week", "month", "year"] = "day",
+    user: dict = Depends(get_current_user),
+):
+    """Aggregated revenue + footfall between [from_date, to_date] inclusive, bucketed by granularity."""
+    try:
+        d_from = datetime.strptime(from_date, "%Y-%m-%d").date()
+        d_to = datetime.strptime(to_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "Invalid date format, use YYYY-MM-DD")
+    if d_to < d_from:
+        raise HTTPException(400, "to_date must be >= from_date")
+
+    # inclusive end-of-day
+    to_boundary = (d_to + timedelta(days=1)).isoformat()
+
+    bills = await db.bills.find(
+        {"created_at": {"$gte": d_from.isoformat(), "$lt": to_boundary}},
+        {"_id": 0, "total": 1, "created_at": 1, "payment_status": 1, "items": 1, "customer_phone": 1},
+    ).to_list(50000)
+
+    def bucket_key(iso_str: str) -> str:
+        d = datetime.fromisoformat(iso_str.replace("Z", "+00:00")).date()
+        if granularity == "day":
+            return d.isoformat()
+        if granularity == "week":
+            iso = d.isocalendar()
+            return f"{iso[0]}-W{iso[1]:02d}"
+        if granularity == "month":
+            return f"{d.year}-{d.month:02d}"
+        return str(d.year)
+
+    def all_buckets():
+        cur = d_from
+        seen = []
+        while cur <= d_to:
+            k = bucket_key(cur.isoformat())
+            if not seen or seen[-1] != k:
+                seen.append(k)
+            cur = cur + timedelta(days=1)
+        return seen
+
+    buckets_ordered = all_buckets()
+    revenue_map = {k: 0.0 for k in buckets_ordered}
+    footfall_map = {k: 0 for k in buckets_ordered}
+    total_revenue = 0.0
+    total_footfall = 0
+    total_paid = 0
+    total_pending = 0
+    game_counts = {}
+
+    for b in bills:
+        k = bucket_key(b["created_at"])
+        if k in footfall_map:
+            footfall_map[k] += 1
+            total_footfall += 1
+        if b.get("payment_status") == "paid":
+            amt = b.get("total", 0)
+            if k in revenue_map:
+                revenue_map[k] += amt
+            total_revenue += amt
+            total_paid += 1
+        else:
+            total_pending += 1
+        for it in b.get("items", []):
+            if it.get("kind") == "game":
+                game_counts[it["name"]] = game_counts.get(it["name"], 0) + it.get("qty", 1)
+
+    trend = [{"date": k, "revenue": round(revenue_map[k], 2), "footfall": footfall_map[k]} for k in buckets_ordered]
+    top_games = sorted([{"name": k, "count": v} for k, v in game_counts.items()], key=lambda x: -x["count"])[:5]
+    unique_customers = len({b.get("customer_phone", "") for b in bills if b.get("customer_phone")})
+
+    return {
+        "from": from_date,
+        "to": to_date,
+        "granularity": granularity,
+        "total_revenue": round(total_revenue, 2),
+        "total_footfall": total_footfall,
+        "unique_customers": unique_customers,
+        "bills_paid": total_paid,
+        "bills_pending": total_pending,
+        "average_bill": round(total_revenue / total_paid, 2) if total_paid else 0,
+        "trend": trend,
         "top_games": top_games,
     }
 

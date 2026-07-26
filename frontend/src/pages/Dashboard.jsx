@@ -4,14 +4,15 @@ import { useAuth } from "@/lib/auth";
 import { PageHead } from "@/components/Page";
 import { Card } from "@/components/ui/card";
 import { inr } from "@/lib/api";
-import { Wallet, Users, MessageSquare, Receipt, TrendingUp, Trophy } from "lucide-react";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
+import { Wallet, Users, MessageSquare, Receipt, Trophy } from "lucide-react";
+import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import QRCode from "react-qr-code";
 import { copyToClipboard } from "@/lib/clipboard";
 import { toast } from "sonner";
-import { Star, Copy, ExternalLink } from "lucide-react";
+import { Star, Copy, ExternalLink, Calendar as CalIcon } from "lucide-react";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -19,12 +20,39 @@ export default function Dashboard() {
   const [settings, setSettings] = useState(null);
   const [error, setError] = useState(false);
 
+  const today = new Date().toISOString().slice(0, 10);
+  const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+  const [from, setFrom] = useState(daysAgo(6));
+  const [to, setTo] = useState(today);
+  const [granularity, setGranularity] = useState("day");
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsBusy, setAnalyticsBusy] = useState(false);
+
+  const setPreset = (p) => {
+    if (p === "today") { setFrom(today); setTo(today); setGranularity("day"); }
+    else if (p === "7d") { setFrom(daysAgo(6)); setTo(today); setGranularity("day"); }
+    else if (p === "30d") { setFrom(daysAgo(29)); setTo(today); setGranularity("day"); }
+    else if (p === "3m") { setFrom(daysAgo(89)); setTo(today); setGranularity("week"); }
+    else if (p === "1y") { setFrom(daysAgo(364)); setTo(today); setGranularity("month"); }
+    else if (p === "all") { setFrom("2024-01-01"); setTo(today); setGranularity("month"); }
+  };
+
   useEffect(() => {
     let mounted = true;
     api.get("/dashboard/stats").then((r) => mounted && setStats(r.data)).catch(() => mounted && setError(true));
     api.get("/settings").then((r) => mounted && setSettings(r.data)).catch(() => {});
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    setAnalyticsBusy(true);
+    api.get(`/dashboard/analytics?from_date=${from}&to_date=${to}&granularity=${granularity}`)
+      .then((r) => mounted && setAnalytics(r.data))
+      .catch(() => mounted && setAnalytics(null))
+      .finally(() => mounted && setAnalyticsBusy(false));
+    return () => { mounted = false; };
+  }, [from, to, granularity]);
 
   const reviewUrl = settings?.google_review_url || "";
   const copyReview = async () => {
@@ -53,26 +81,68 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-        <Card className="lg:col-span-2 p-6 rounded-2xl">
-          <div className="flex items-center justify-between mb-4">
+        <Card className="lg:col-span-2 p-6 rounded-2xl" data-testid="analytics-card">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
             <div>
-              <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary">Last 7 days</div>
-              <h3 className="text-xl font-black">Revenue trend</h3>
+              <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary">Analytics</div>
+              <h3 className="text-xl font-black">Revenue &amp; footfall trend</h3>
+              <p className="text-xs text-muted-foreground mt-1">{from} → {to} · {granularity}wise · {analytics ? `${analytics.trend?.length || 0} data points` : "…"}</p>
             </div>
-            <TrendingUp className="text-secondary h-6 w-6" />
+            <div className="flex flex-wrap gap-2">
+              {[
+                { k: "today", l: "Today" },
+                { k: "7d", l: "7d" },
+                { k: "30d", l: "30d" },
+                { k: "3m", l: "3m" },
+                { k: "1y", l: "1y" },
+                { k: "all", l: "All" },
+              ].map((p) => (
+                <button key={p.k} data-testid={`preset-${p.k}`} onClick={() => setPreset(p.k)} className="px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest bg-muted text-muted-foreground hover:bg-secondary hover:text-secondary-foreground transition-colors">{p.l}</button>
+              ))}
+            </div>
           </div>
-          <div className="h-64">
-            {stats?.revenue_trend?.length > 0 ? (
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
+            <div>
+              <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">From</label>
+              <Input data-testid="date-from" type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="h-9 text-sm" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">To</label>
+              <Input data-testid="date-to" type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)} className="h-9 text-sm" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Group by</label>
+              <div className="grid grid-cols-4 gap-1 mt-1">
+                {["day", "week", "month", "year"].map((g) => (
+                  <button key={g} data-testid={`gran-${g}`} onClick={() => setGranularity(g)} className={`h-9 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${granularity === g ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground hover:bg-secondary/20"}`}>{g}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            <MiniStat label="Revenue" value={analytics ? `₹${(analytics.total_revenue || 0).toLocaleString("en-IN")}` : "—"} testid="ms-revenue" tint="text-accent" />
+            <MiniStat label="Footfall" value={analytics?.total_footfall ?? "—"} testid="ms-footfall" tint="text-secondary" />
+            <MiniStat label="Avg. bill" value={analytics ? `₹${(analytics.average_bill || 0).toLocaleString("en-IN")}` : "—"} testid="ms-avg" />
+            <MiniStat label="Unique customers" value={analytics?.unique_customers ?? "—"} testid="ms-uniq" />
+          </div>
+
+          <div className="h-72">
+            {analyticsBusy && !analytics ? (
+              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Loading…</div>
+            ) : analytics?.trend?.length ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats.revenue_trend}>
-                  <XAxis dataKey="date" tickFormatter={(d) => d.slice(5)} fontSize={12} />
-                  <YAxis fontSize={12} />
-                  <Tooltip formatter={(v) => inr(v)} />
-                  <Bar dataKey="revenue" fill="hsl(28 100% 49%)" radius={[8, 8, 0, 0]} />
+                <BarChart data={analytics.trend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(204 100% 90%)" />
+                  <XAxis dataKey="date" fontSize={11} tickFormatter={(d) => granularity === "day" ? d.slice(5) : d} />
+                  <YAxis fontSize={11} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                  <Tooltip formatter={(v, name) => name === "revenue" ? `₹${Number(v).toLocaleString("en-IN")}` : v} labelClassName="font-bold" />
+                  <Bar dataKey="revenue" fill="hsl(28 100% 49%)" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">No data yet</div>
+              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">No data in this range</div>
             )}
           </div>
         </Card>
@@ -171,5 +241,14 @@ function KpiCard({ icon: Icon, tint, label, value, testid }) {
       <div className="text-xs uppercase tracking-[0.2em] font-bold text-muted-foreground mb-2">{label}</div>
       <div className="text-3xl font-black tracking-tight">{value}</div>
     </Card>
+  );
+}
+
+function MiniStat({ label, value, testid, tint }) {
+  return (
+    <div className="p-3 bg-muted rounded-xl" data-testid={testid}>
+      <div className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">{label}</div>
+      <div className={`text-lg font-black mt-0.5 tabular-nums ${tint || ""}`}>{value}</div>
+    </div>
   );
 }
