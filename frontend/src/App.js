@@ -17,6 +17,8 @@ import Marketing from "@/pages/Marketing";
 import Settings from "@/pages/Settings";
 import { CustomersList, CustomerDetail } from "@/pages/Customers";
 import PrintBill from "@/pages/PrintBill";
+import Prebookings from "@/pages/Prebookings";
+import { PublicBook, PublicBookConfirm } from "@/pages/PublicBook";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ConnectionStatus from "@/components/ConnectionStatus";
 import { Loader2 } from "lucide-react";
@@ -39,7 +41,10 @@ function App() {
           <ConnectionStatus />
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/book" element={<PublicBook />} />
+            <Route path="/book/:id" element={<PublicBookConfirm />} />
             <Route path="/" element={<Protected><Dashboard /></Protected>} />
+            <Route path="/prebookings" element={<Protected perm="prebookings"><Prebookings /></Protected>} />
             <Route path="/inquiries" element={<Protected perm="inquiries"><Inquiries /></Protected>} />
             <Route path="/visit" element={<Protected perm="visit"><NewVisit /></Protected>} />
             <Route path="/bills" element={<Protected perm="bills"><BillsList /></Protected>} />

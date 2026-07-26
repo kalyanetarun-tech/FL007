@@ -3,12 +3,13 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, MessageSquare, Gamepad2, PartyPopper, Receipt,
-  UserCheck, Users, Megaphone, Settings as SettingsIcon, LogOut, Menu, X, Contact
+  UserCheck, Users, Megaphone, Settings as SettingsIcon, LogOut, Menu, X, Contact, CalendarCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard", perm: "dashboard" },
+  { to: "/prebookings", label: "Prebookings", icon: CalendarCheck, testid: "nav-prebookings", perm: "prebookings" },
   { to: "/inquiries", label: "Inquiries", icon: MessageSquare, testid: "nav-inquiries", perm: "inquiries" },
   { to: "/visit", label: "New Bill", icon: Receipt, testid: "nav-visit", perm: "visit" },
   { to: "/bills", label: "Bills", icon: Receipt, testid: "nav-bills", perm: "bills" },

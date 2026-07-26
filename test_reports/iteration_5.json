@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 5 (Prebookings public + CRM) fully verified. Backend pytest 47/47 PASS (31 previous regression tests + 16 new prebooking tests) in 11.67s. New public flow: GET /api/prebook/catalog (no auth) returns park info+games+packages+upi settings; POST /api/prebook (no auth) creates booking, generates BK-YYMMDD-XXXXX (regex-matched), computes total (250x2+1500=2000), payment_status=pending, razorpay_link:null (creds missing = expected), rejects empty items with 400; GET /api/prebook/{booking_no} and /api/prebook/{uuid} both return booking with _park info, 404 for non-existent. Auth-protected: GET /api/prebookings (401 without auth, sorted desc for admin); PATCH /api/prebookings/{id}/status with status='paid' sets both status AND payment_status='paid'; status='cancelled' sets payment_status='cancelled'; POST /api/prebookings/{id}/convert creates bill in /api/bills with prebooking_id link, marks prebook status='arrived' and stores converted_bill_id; POST /api/prebook/{id}/send simulates whatsapp/sms/email (simulated:true, public_url embeds booking_no). Dashboard stats now includes pending_prebookings (int). New employees get 'prebookings' in DEFAULT_EMP_PERMS. Frontend E2E: /book renders WITHOUT auth (Prebooking header, Packages/Games tabs, disabled Book Now until name+phone+item cart), added first game card → filled name+phone → Book Now enabled → clicked → navigated to /book/BK-260726-ADC44 → confirmation page shows customer_name, Copy Link button; /book/BK-999999-ZZZZZ shows 'Booking not found' Card without crash. CRM /prebookings: admin sidebar has 'Prebookings' link, public-url banner shows correct URL, copy-public-link & open-public-link buttons present, 6 filter chips (all/pending/confirmed/paid/arrived/cancelled), 5 booking cards rendered (created during test), card click opens detail dialog with pbk-status-select + pbk-send-btn + pbk-convert, convert-to-bill button works (dialog closes with success). Dashboard renders combined Pending KPI (33). Login regression works. No blocking issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_prebookings.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration2.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py now 1043 lines — recurring recommendation to split into routers (prebook, bills, inquiries, users, dashboard).",
+    "PrebookItem requires ref_id — frontend PublicBook.jsx correctly sends ref_id from catalog item.id; ensure external API consumers know this is required.",
+    "Prebooking bill converted via convert_prebook_to_bill uses gst_percent=0 hardcoded — may lose per-item GST if merchants want it on prebookings. Consider carrying category/gst from catalog into prebook items.",
+    "convert endpoint does NOT create/upsert customer document (unlike normal /api/bills flow). Customers page will not show prebooking customer until they have a converted bill — verified above via bill creation, but a fresh prebook customer without bill won't appear. Consider upserting customer at prebook creation OR at conversion for CRM completeness.",
+    "Public /api/prebook has no rate-limiting or captcha — publicly abusable to spam DB. Recommend adding IP-based throttle or hCaptcha.",
+    "razorpay_link is created synchronously in POST /prebook — if Razorpay API is slow, booking creation latency will spike. Consider moving to background task.",
+    "PATCH /api/prebookings/{id}/status: response returns None if update didn't match — should raise 404 when booking_id not found (currently returns null silently).",
+    "PublicBook.jsx uses raw axios (no auth interceptor) — correct. But has no error boundary; if catalog API fails, catches and shows empty games/packages, still allows submitting empty (though Book Now stays disabled). OK."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_prebookings.py (new)",
+    "/app/test_reports/iteration_5.json"
+  ],
+  "success_rate": {"backend": "100% (47/47)", "frontend": "100% of prebooking flows + regression pages"},
+  "test_credentials": "admin@funland.in / Funland@123",
+  "seed_data_creation": "Test created ~5 TEST_-prefixed prebookings via public API during testing (still in DB — safe, all clearly TEST_ prefixed).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Prebooking public URL is /book (accessible without auth). Confirmation page is /book/{booking_no|uuid}. Booking numbers regex: ^BK-\\d{6}-[A-F0-9]{5}$. PrebookItem requires ref_id (str) — 422 without it. Razorpay link null in test env (no keys) — expected. Convert-to-bill creates real bill with prebooking_id linkage and sets prebook.status='arrived'. Dashboard KPI 'kpi-pending' combines pending_prebookings + pending_bills. Prebookings sidebar item uses href='/prebookings' with permission='prebookings' (in default emp perms).",
+  "rca of the issue": "N/A — no failures. Initial test errors caused by test omitting required PrebookItem.ref_id field; fixed by adding ref_id to test payloads."
+}

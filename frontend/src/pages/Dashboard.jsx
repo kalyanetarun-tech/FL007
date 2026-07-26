@@ -37,7 +37,7 @@ export default function Dashboard() {
         <KpiCard icon={Wallet} tint="bg-primary/20 text-accent" label="Aaj ka revenue" value={stats ? inr(stats.revenue_today) : "—"} testid="kpi-revenue" />
         <KpiCard icon={Users} tint="bg-secondary/20 text-secondary" label="Aaj ki footfall" value={stats?.footfall_today ?? "—"} testid="kpi-footfall" />
         <KpiCard icon={MessageSquare} tint="bg-accent/20 text-accent" label="Nayi inquiries" value={stats?.inquiries_new ?? "—"} testid="kpi-inq-new" />
-        <KpiCard icon={Receipt} tint="bg-destructive/10 text-destructive" label="Pending bills" value={stats?.pending_bills ?? "—"} testid="kpi-pending" />
+        <KpiCard icon={Receipt} tint="bg-destructive/10 text-destructive" label={stats?.pending_prebookings ? `Pending: ${stats.pending_prebookings} bookings + ${stats.pending_bills} bills` : "Pending bills"} value={stats ? ((stats.pending_prebookings || 0) + (stats.pending_bills || 0)) : "—"} testid="kpi-pending" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">

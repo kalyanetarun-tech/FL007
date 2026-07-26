@@ -15,6 +15,7 @@ import { Plus, Trash2, Shield, Megaphone } from "lucide-react";
 
 const ALL_PERMS = [
   { key: "dashboard", label: "Dashboard" },
+  { key: "prebookings", label: "Prebookings" },
   { key: "inquiries", label: "Inquiries" },
   { key: "visit", label: "New Bill / Visit" },
   { key: "bills", label: "Bills" },

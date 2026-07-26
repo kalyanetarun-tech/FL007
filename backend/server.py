@@ -174,6 +174,27 @@ class BillIn(BaseModel):
 class AttendanceCheckIn(BaseModel):
     notes: Optional[str] = ""
 
+class PrebookItem(BaseModel):
+    kind: Literal["game", "package"]
+    ref_id: str
+    name: str
+    price: float
+    qty: int = 1
+
+class PrebookIn(BaseModel):
+    customer_name: str
+    customer_phone: str
+    customer_email: Optional[str] = ""
+    booking_date: str  # YYYY-MM-DD
+    booking_time: Optional[str] = ""  # e.g. "5:30 PM"
+    pax: int = 1
+    items: List[PrebookItem]
+    notes: Optional[str] = ""
+    source: str = "web"  # web / whatsapp / phone etc.
+
+class PrebookStatusUpdate(BaseModel):
+    status: Literal["pending", "confirmed", "paid", "cancelled", "arrived"]
+
 class SettingsIn(BaseModel):
     park_name: Optional[str] = None
     gst_rate: Optional[float] = None
@@ -220,7 +241,7 @@ async def list_users(_: dict = Depends(require_admin)):
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
     return users
 
-DEFAULT_EMP_PERMS = ["dashboard", "inquiries", "visit", "bills", "customers", "games", "packages", "attendance"]
+DEFAULT_EMP_PERMS = ["dashboard", "inquiries", "visit", "bills", "customers", "games", "packages", "attendance", "prebookings"]
 ALL_PERMS = DEFAULT_EMP_PERMS + ["staff", "marketing", "settings"]
 
 @api.post("/users")
@@ -527,6 +548,145 @@ async def send_bill(bid: str, data: SendBillIn, user: dict = Depends(get_current
     result = await _send_message(data.channel, bill.get("customer_phone", ""), bill.get("customer_email", ""), f"Your Bill {bill['bill_no']} from {settings.get('park_name','Funland')}", msg)
     return {"ok": True, "delivery": result}
 
+# ---------------- Prebookings (public + internal) ----------------
+def _prebook_no():
+    return "BK-" + datetime.now(timezone.utc).strftime("%y%m%d") + "-" + uuid.uuid4().hex[:5].upper()
+
+@api.get("/prebook/catalog")
+async def prebook_catalog():
+    """Public: list of active games + packages for the booking page."""
+    games = await db.games.find({"active": True}, {"_id": 0}).sort("name", 1).to_list(500)
+    pkgs = await db.packages.find({"active": True}, {"_id": 0}).sort("name", 1).to_list(500)
+    s = await _get_settings()
+    return {
+        "park_name": s.get("park_name", "Funland Adventure Park"),
+        "phone": s.get("phone", ""),
+        "address": s.get("address", ""),
+        "upi_qr_url": s.get("upi_qr_url", ""),
+        "upi_id": s.get("upi_id", ""),
+        "games": games,
+        "packages": pkgs,
+    }
+
+@api.post("/prebook")
+async def create_prebook(data: PrebookIn):
+    """Public: create a prebooking. Returns booking id + payment info."""
+    if not data.items:
+        raise HTTPException(400, "At least one item required")
+    total = round(sum(i.price * i.qty for i in data.items), 2)
+    doc = {
+        "id": new_id(),
+        "booking_no": _prebook_no(),
+        "customer_name": data.customer_name,
+        "customer_phone": data.customer_phone,
+        "customer_email": data.customer_email or "",
+        "booking_date": data.booking_date,
+        "booking_time": data.booking_time or "",
+        "pax": data.pax,
+        "items": [i.model_dump() for i in data.items],
+        "total": total,
+        "notes": data.notes or "",
+        "source": data.source,
+        "status": "pending",
+        "payment_status": "pending",
+        "razorpay_link": None,
+        "created_at": now_iso(),
+    }
+    # Try to create Razorpay link
+    fake_bill = {
+        "total": total,
+        "bill_no": doc["booking_no"],
+        "customer_name": data.customer_name,
+        "customer_phone": data.customer_phone,
+        "customer_email": data.customer_email,
+    }
+    link = await _create_razorpay_link(fake_bill)
+    if link:
+        doc["razorpay_link"] = link
+    await db.prebookings.insert_one(doc)
+    doc.pop("_id", None)
+    logger.info(f"Prebooking created: {doc['booking_no']} for {data.customer_name}")
+    return doc
+
+@api.get("/prebook/{bid}")
+async def get_prebook_public(bid: str):
+    """Public: get a prebooking by id OR booking_no — customer link opens this."""
+    b = await db.prebookings.find_one({"$or": [{"id": bid}, {"booking_no": bid.upper()}]}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    s = await _get_settings()
+    b["_park"] = {"name": s.get("park_name"), "upi_qr_url": s.get("upi_qr_url"), "upi_id": s.get("upi_id"), "phone": s.get("phone"), "address": s.get("address")}
+    return b
+
+@api.get("/prebookings")
+async def list_prebookings(user: dict = Depends(get_current_user)):
+    return await db.prebookings.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+@api.patch("/prebookings/{bid}/status")
+async def update_prebook_status(bid: str, data: PrebookStatusUpdate, user: dict = Depends(get_current_user)):
+    upd = {"status": data.status}
+    if data.status == "paid":
+        upd["payment_status"] = "paid"
+    if data.status == "cancelled":
+        upd["payment_status"] = "cancelled"
+    await db.prebookings.update_one({"id": bid}, {"$set": upd})
+    return await db.prebookings.find_one({"id": bid}, {"_id": 0})
+
+@api.post("/prebookings/{bid}/convert")
+async def convert_prebook_to_bill(bid: str, user: dict = Depends(get_current_user)):
+    """Convert a prebooking into an actual bill on customer arrival."""
+    b = await db.prebookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    items = [{"kind": it["kind"], "ref_id": it.get("ref_id"), "name": it["name"], "price": it["price"], "qty": it["qty"], "gst_percent": 0, "category": None} for it in b.get("items", [])]
+    subtotal, disc_amount, gst_amount, total = _compute_bill_totals(items, 0, 0, 0)
+    bill_doc = {
+        "id": new_id(),
+        "bill_no": _bill_number(),
+        "customer_name": b["customer_name"],
+        "customer_phone": b["customer_phone"],
+        "customer_email": b.get("customer_email", ""),
+        "items": items,
+        "discount": 0, "discount_percent": 0,
+        "gst_percent": 0, "gst_amount": gst_amount,
+        "subtotal": subtotal, "total": total,
+        "payment_method": "razorpay" if b.get("razorpay_link") else "cash",
+        "payment_status": "paid" if b.get("payment_status") == "paid" else "pending",
+        "razorpay_link": b.get("razorpay_link"),
+        "notes": f"From prebooking {b['booking_no']}",
+        "created_by": user["id"],
+        "created_by_name": user["name"],
+        "created_at": now_iso(),
+        "prebooking_id": b["id"],
+    }
+    await db.bills.insert_one(bill_doc)
+    await db.prebookings.update_one({"id": bid}, {"$set": {"status": "arrived", "converted_bill_id": bill_doc["id"]}})
+    bill_doc.pop("_id", None)
+    return bill_doc
+
+@api.post("/prebook/{bid}/send")
+async def send_prebook_link(bid: str, payload: dict, user: dict = Depends(get_current_user)):
+    """Send prebooking link/QR to customer via WhatsApp/SMS/Email."""
+    b = await db.prebookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    channel = payload.get("channel", "whatsapp")
+    frontend = os.environ.get("FRONTEND_URL", "").rstrip("/") or "https://game-package-tracker.preview.emergentagent.com"
+    public_url = f"{frontend}/book/{b['booking_no']}"
+    lines = [
+        f"Hi {b['customer_name']}!",
+        f"Aapki booking {b['booking_no']} confirm ho gayi 🎡",
+        f"Date: {b['booking_date']} {b.get('booking_time','')}",
+        f"Amount: ₹{b['total']}",
+        "",
+        f"View & Pay: {public_url}",
+    ]
+    if b.get("razorpay_link"):
+        lines.append(f"Pay online: {b['razorpay_link']}")
+    msg = "\n".join(lines)
+    res = await _send_message(channel, b.get("customer_phone", ""), b.get("customer_email", ""), f"Funland Booking {b['booking_no']}", msg)
+    return {"ok": True, "delivery": res, "public_url": public_url}
+
 # ---------------- Attendance ----------------
 @api.post("/attendance/checkin")
 async def check_in(data: AttendanceCheckIn, user: dict = Depends(get_current_user)):
@@ -616,6 +776,7 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
     inquiries_new = await db.inquiries.count_documents({"status": "new"})
     total_inquiries = await db.inquiries.count_documents({})
     pending_bills = await db.bills.count_documents({"payment_status": "pending"})
+    pending_prebookings = await db.prebookings.count_documents({"status": {"$in": ["pending", "confirmed"]}})
 
     # Revenue trend last 7 days
     trend = {}
@@ -643,6 +804,7 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
         "inquiries_new": inquiries_new,
         "total_inquiries": total_inquiries,
         "pending_bills": pending_bills,
+        "pending_prebookings": pending_prebookings,
         "revenue_trend": trend_list,
         "top_games": top_games,
     }
@@ -842,6 +1004,8 @@ async def ensure_indexes():
     await db.inquiries.create_index("id", unique=True)
     await db.bills.create_index("id", unique=True)
     await db.attendance.create_index([("user_id", 1), ("date", 1)])
+    await db.prebookings.create_index("id", unique=True)
+    await db.prebookings.create_index("booking_no", unique=True)
 
 @app.on_event("startup")
 async def startup():
