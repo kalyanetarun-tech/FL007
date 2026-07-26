@@ -73,9 +73,7 @@ function BrandHeader({ onClose }) {
   return (
     <div className="h-20 px-6 flex items-center justify-between border-b border-border">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-sm">
-          <span className="text-primary-foreground font-black text-lg">F</span>
-        </div>
+        <img src="/icon-192.png" alt="Funland" className="w-10 h-10 rounded-xl border border-border object-contain bg-white shadow-sm" />
         <div>
           <div className="font-black text-lg leading-none tracking-tight">
             <span className="text-accent">Fun</span><span className="text-secondary">land</span>

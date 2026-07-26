@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 7 verified: (A) SECURITY FIX on /login — fresh browser context shows empty email input, no 'Default Admin' box, body innerText does NOT contain 'admin@funland.in' / 'Funland@123' / 'Default Admin'. Wrong creds show 'Invalid credentials' toast, stays on /login. Correct admin creds still log in and land on Dashboard. (B) BRANDING — /icon-192.png (17KB), /icon-512.png (74KB), /icon-maskable-512.png (54KB), /apple-touch-icon.png (15KB), /favicon.ico (7KB) all return HTTP 200 with correct image/png (or image/x-icon) content-type. /manifest.json returns short_name='Funland', display='standalone', 3 icons entries (192, 512, maskable-512). Login card, Layout sidebar BrandHeader, and /book public page all use <img src='/icon-192.png'>. Install PWA banner visible in desktop viewport. (C) REGRESSION — pytest 47/47 PASSED in 47.43s. No new issues.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration2.py",
+    "/app/backend/tests/test_prebookings.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "index.html <title>Emergent | Fullstack App</title> — should be updated to 'Funland CRM' for branding completeness and PWA app name shown in browser tab.",
+    "service-worker.js CACHE_NAME bump to funland-shell-v3 is correct approach; users on old shells will still need one refresh cycle to pick up new icons.",
+    "Login page 'Manager Login' subtitle is fine, but consider adding a short helper link 'Forgot password? Contact your park manager' — current copy already hints at that via 'Naya staff? Manager se apna account banwao.' OK."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (47/47)", "frontend": "100% (all security + branding + regression checks passed)"},
+  "test_credentials": "admin@funland.in / Funland@123",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login page must remain free of any hardcoded credentials hint. If a 'demo mode' is ever added, gate it behind an env var and never expose real admin creds. PWA icons are physical PNGs in /app/frontend/public/ — any redesign should regenerate all 5 files (icon-192, icon-512, icon-maskable-512, apple-touch-icon, favicon.ico) and bump service-worker CACHE_NAME to invalidate cached shells.",
+  "rca of the issue": "User-reported bug (1): Login page previously pre-filled email as 'admin@funland.in' and rendered a visible 'Default Admin' credentials helper box exposing password 'Funland@123' — anyone with the link could log in as admin. Fix in Login.jsx: useState('') for email + removal of the helper box + swapped 'F' letter tile for real logo <img src='/icon-192.png'>. Bug (2) branding: default CRA icons replaced with actual Funland ferris-wheel PNGs referenced in index.html and manifest.json, service worker cache bumped to funland-shell-v3. Verified via fresh-context Playwright: email='', banned strings absent, real login flow still functional."
+}

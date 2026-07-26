@@ -1,5 +1,5 @@
 /* Funland CRM service worker — offline shell for PWA */
-const CACHE_NAME = "funland-shell-v2";
+const CACHE_NAME = "funland-shell-v3";
 const SHELL = ["/", "/index.html", "/manifest.json", "/favicon.ico"];
 
 self.addEventListener("install", (event) => {

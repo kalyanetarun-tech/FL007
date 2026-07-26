@@ -11,7 +11,7 @@ import { Loader2 } from "lucide-react";
 
 export default function Login() {
   const { user, login, loading } = useAuth();
-  const [email, setEmail] = useState("admin@funland.in");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const nav = useNavigate();
@@ -51,9 +51,7 @@ export default function Login() {
       <div className="flex flex-col justify-center px-6 py-12 md:px-16">
         <div className="max-w-md w-full mx-auto">
           <div className="flex items-center gap-3 mb-10">
-            <div className="w-12 h-12 rounded-2xl bg-primary flex items-center justify-center shadow-sm">
-              <span className="text-primary-foreground font-black text-2xl">F</span>
-            </div>
+            <img src="/icon-192.png" alt="Funland" className="w-14 h-14 rounded-2xl border border-border shadow-sm object-contain bg-white" />
             <div>
               <div className="text-2xl font-black">
                 <span className="text-accent">Fun</span><span className="text-secondary">land</span>
@@ -63,16 +61,16 @@ export default function Login() {
           </div>
 
           <h2 className="text-3xl font-black mb-2 tracking-tight">Sign in</h2>
-          <p className="text-muted-foreground mb-8">Use your Funland credentials.</p>
+          <p className="text-muted-foreground mb-8">Apne credentials daalo park manager se milte hi.</p>
 
           <form onSubmit={submit} className="space-y-5">
             <div>
               <Label htmlFor="email" className="uppercase text-xs font-bold tracking-[0.2em]">Email</Label>
-              <Input id="email" data-testid="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-2 h-12" />
+              <Input id="email" data-testid="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="apna@email.com" autoComplete="email" className="mt-2 h-12" />
             </div>
             <div>
               <Label htmlFor="password" className="uppercase text-xs font-bold tracking-[0.2em]">Password</Label>
-              <Input id="password" data-testid="login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="mt-2 h-12" />
+              <Input id="password" data-testid="login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" className="mt-2 h-12" />
             </div>
             <Button data-testid="login-submit" type="submit" disabled={busy}
               className="w-full h-12 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground font-black text-base">
@@ -80,10 +78,7 @@ export default function Login() {
             </Button>
           </form>
 
-          <div className="mt-8 p-4 bg-muted rounded-xl text-xs">
-            <div className="font-bold mb-1">Default Admin</div>
-            <div className="text-muted-foreground">admin@funland.in / Funland@123</div>
-          </div>
+          <p className="mt-10 text-xs text-center text-muted-foreground">Naya staff? Manager se apna account banwao.</p>
         </div>
       </div>
     </div>

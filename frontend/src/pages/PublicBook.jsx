@@ -55,7 +55,7 @@ export function PublicBook() {
       <Toaster richColors position="top-right" />
       <header className="bg-white border-b border-border sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center"><span className="text-primary-foreground font-black">F</span></div>
+          <img src="/icon-192.png" alt="Funland" className="w-10 h-10 rounded-xl border border-border object-contain bg-white shadow-sm" />
           <div>
             <div className="font-black leading-none"><span className="text-accent">Fun</span><span className="text-secondary">land</span></div>
             <div className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Prebooking</div>
