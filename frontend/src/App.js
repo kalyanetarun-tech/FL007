@@ -21,6 +21,7 @@ import Prebookings from "@/pages/Prebookings";
 import { PublicBook, PublicBookConfirm } from "@/pages/PublicBook";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ConnectionStatus from "@/components/ConnectionStatus";
+import InstallPWA from "@/components/InstallPWA";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children, adminOnly, perm }) {
@@ -39,6 +40,7 @@ function App() {
         <BrowserRouter>
           <Toaster richColors position="top-right" />
           <ConnectionStatus />
+          <InstallPWA />
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/book" element={<PublicBook />} />
