@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Calendar, Users, ExternalLink, Copy, Send, CheckCircle2, ArrowRight, MessageCircle, Mail, Phone } from "lucide-react";
 
 const STATUS_COLORS = {
@@ -45,6 +46,11 @@ export default function Prebookings() {
     } catch (e) { toast.error(fmtErr(e)); }
   };
 
+  const doCopy = async (text, label) => {
+    const ok = await copyToClipboard(text);
+    if (ok) toast.success(`${label} copied`); else toast.info("Manual copy fallback shown");
+  };
+
   const bookingUrl = detail ? `${window.location.origin}/book/${detail.booking_no}` : "";
   const publicLink = `${window.location.origin}/book`;
 
@@ -58,7 +64,7 @@ export default function Prebookings() {
         subtitle="Online bookings — payment link + QR ke saath"
         action={
           <div className="flex gap-2">
-            <Button data-testid="copy-public-link" onClick={() => { navigator.clipboard.writeText(publicLink); toast.success("Public link copied"); }} variant="outline" className="rounded-full h-11 px-5 font-bold"><Copy className="h-4 w-4 mr-1" /> Copy Booking Link</Button>
+            <Button data-testid="copy-public-link" onClick={() => doCopy(publicLink, "Public link")} variant="outline" className="rounded-full h-11 px-5 font-bold"><Copy className="h-4 w-4 mr-1" /> Copy Booking Link</Button>
             <a href={publicLink} target="_blank" rel="noreferrer"><Button data-testid="open-public-link" className="rounded-full h-11 px-5 font-bold bg-accent hover:bg-accent/90"><ExternalLink className="h-4 w-4 mr-1" /> Open Booking Page</Button></a>
           </div>
         }
@@ -147,7 +153,7 @@ export default function Prebookings() {
 
                 <div className="p-3 bg-muted rounded-xl flex items-center justify-between text-xs">
                   <code className="break-all flex-1">{bookingUrl}</code>
-                  <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(bookingUrl); toast.success("Link copied"); }}><Copy className="h-3 w-3" /></Button>
+                  <Button data-testid="copy-detail-link" size="sm" variant="ghost" onClick={() => doCopy(bookingUrl, "Booking link")}><Copy className="h-3 w-3" /></Button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

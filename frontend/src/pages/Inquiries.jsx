@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Plus, Phone, Instagram, Facebook, MessageCircle, User, Copy, MessagesSquare, Send } from "lucide-react";
 
 const STATUS_COLORS = {
@@ -262,7 +263,7 @@ export default function Inquiries() {
                 <div key={ch} className="p-3 bg-muted rounded-xl">
                   <div className="flex items-center justify-between mb-1">
                     <div className="font-bold capitalize">{ch}</div>
-                    <button data-testid={`copy-webhook-${ch}`} onClick={() => { navigator.clipboard.writeText(url); toast.success("Copied"); }} className="text-xs font-bold text-secondary flex items-center gap-1"><Copy className="h-3 w-3" /> Copy</button>
+                    <button data-testid={`copy-webhook-${ch}`} onClick={async () => { const ok = await copyToClipboard(url); toast[ok ? "success" : "info"](ok ? "Copied" : "Manual copy fallback shown"); }} className="text-xs font-bold text-secondary flex items-center gap-1"><Copy className="h-3 w-3" /> Copy</button>
                   </div>
                   <code className="text-xs break-all">{url}</code>
                 </div>

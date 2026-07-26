@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Instagram, Facebook, MessageCircle, Send, Mail, Phone, Copy } from "lucide-react";
 
 const CHANNEL_ICON = { instagram: Instagram, facebook: Facebook, whatsapp: MessageCircle, sms: Phone, email: Mail };
@@ -42,7 +43,7 @@ export default function Marketing() {
     finally { setBusy(false); }
   };
 
-  const copyMsg = () => { navigator.clipboard.writeText(form.message); toast.success("Message copied"); };
+  const copyMsg = async () => { const ok = await copyToClipboard(form.message); toast[ok ? "success" : "info"](ok ? "Message copied" : "Manual copy fallback shown"); };
 
   return (
     <div>

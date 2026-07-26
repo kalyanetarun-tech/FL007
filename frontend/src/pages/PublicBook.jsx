@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast, Toaster } from "sonner";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Loader2, Gamepad2, PartyPopper, Plus, Minus, X, Calendar, Users, CheckCircle2, ExternalLink, Copy } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -149,7 +150,10 @@ export function PublicBookConfirm() {
   if (!b) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin h-8 w-8 text-accent" /></div>;
 
   const park = b._park || {};
-  const copyLink = () => { navigator.clipboard.writeText(window.location.href); toast.success("Link copied"); };
+  const copyLink = async () => {
+    const ok = await copyToClipboard(window.location.href);
+    toast[ok ? "success" : "info"](ok ? "Link copied" : "Copy karke share karo");
+  };
 
   return (
     <div className="min-h-screen bg-background">
