@@ -202,6 +202,9 @@ class SettingsIn(BaseModel):
     upi_id: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+    google_review_url: Optional[str] = None
+    google_reviews_shown: Optional[int] = None
+    google_rating: Optional[float] = None
 
 class CampaignIn(BaseModel):
     title: str
@@ -745,6 +748,9 @@ async def _get_settings():
             "upi_id": "",
             "phone": "",
             "address": "Indore, MP",
+            "google_review_url": "",
+            "google_reviews_shown": 0,
+            "google_rating": 0.0,
         }
         await db.settings.insert_one(s)
     s.pop("_id", None)
@@ -931,6 +937,8 @@ def _format_bill_message(bill: dict, settings: dict) -> str:
         lines.append(f"UPI: {settings['upi_id']}")
     lines.append("")
     lines.append("Thank you for visiting!")
+    if settings.get("google_review_url"):
+        lines.append(f"⭐ Rate us on Google: {settings['google_review_url']}")
     return "\n".join(lines)
 
 async def _send_message(channel: str, phone: str, email: str, subject: str, message: str) -> dict:

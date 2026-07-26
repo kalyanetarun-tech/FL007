@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import QRCode from "react-qr-code";
 import { toast } from "sonner";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 export default function Settings() {
-  const [form, setForm] = useState({ park_name: "", gst_rate: 0, upi_qr_url: "", upi_id: "", phone: "", address: "" });
+  const [form, setForm] = useState({ park_name: "", gst_rate: 0, upi_qr_url: "", upi_id: "", phone: "", address: "", google_review_url: "", google_reviews_shown: 0, google_rating: 0 });
   const [status, setStatus] = useState(null);
 
   useEffect(() => {
@@ -19,8 +20,15 @@ export default function Settings() {
   }, []);
 
   const save = async () => {
-    try { await api.patch("/settings", { ...form, gst_rate: +form.gst_rate || 0 }); toast.success("Settings saved"); }
-    catch (e) { toast.error(fmtErr(e)); }
+    try {
+      await api.patch("/settings", {
+        ...form,
+        gst_rate: +form.gst_rate || 0,
+        google_reviews_shown: +form.google_reviews_shown || 0,
+        google_rating: +form.google_rating || 0,
+      });
+      toast.success("Settings saved");
+    } catch (e) { toast.error(fmtErr(e)); }
   };
 
   return (
@@ -44,6 +52,41 @@ export default function Settings() {
             <div><Label>UPI QR Image URL</Label><Input data-testid="set-qr" value={form.upi_qr_url || ""} onChange={(e) => setForm({ ...form, upi_qr_url: e.target.value })} placeholder="https://..." /></div>
             <div><Label>UPI ID (optional)</Label><Input data-testid="set-upi-id" value={form.upi_id || ""} onChange={(e) => setForm({ ...form, upi_id: e.target.value })} placeholder="funland@paytm" /></div>
             {form.upi_qr_url && <img src={form.upi_qr_url} alt="QR" className="max-w-[240px] rounded-xl border border-border" />}
+          </div>
+        </Card>
+
+        <Card className="p-6 rounded-2xl lg:col-span-2">
+          <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-4">Google Reviews</div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2 space-y-3">
+              <div>
+                <Label>Google Review Link</Label>
+                <Input data-testid="set-gmap-url" value={form.google_review_url || ""} onChange={(e) => setForm({ ...form, google_review_url: e.target.value })} placeholder="https://g.page/r/CXXXXXXXX/review" />
+                <div className="text-xs text-muted-foreground mt-1">Google Business Profile → "Get more reviews" → copy link</div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Total Reviews</Label>
+                  <Input type="number" min={0} data-testid="set-greview-count" value={form.google_reviews_shown || 0} onChange={(e) => setForm({ ...form, google_reviews_shown: e.target.value })} />
+                </div>
+                <div>
+                  <Label>Star Rating</Label>
+                  <Input type="number" step="0.1" min={0} max={5} data-testid="set-grating" value={form.google_rating || 0} onChange={(e) => setForm({ ...form, google_rating: e.target.value })} placeholder="4.6" />
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col items-center justify-center">
+              {form.google_review_url ? (
+                <>
+                  <div className="p-2 bg-white rounded-xl border border-border">
+                    <QRCode value={form.google_review_url} size={140} />
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-2 text-center">This QR bill par bhi print hoga</div>
+                </>
+              ) : (
+                <div className="text-xs text-muted-foreground text-center">Link daalte hi QR yahaan generate ho jayega</div>
+              )}
+            </div>
           </div>
         </Card>
 

@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import QRCode from "react-qr-code";
 import { toast } from "sonner";
 import { Receipt, Send, Download, MessageCircle, Mail, Phone, ExternalLink } from "lucide-react";
 
@@ -181,6 +182,17 @@ export function BillDetail() {
               <div className="text-sm text-muted-foreground">Configure UPI QR in Settings to display here.</div>
             )}
           </Card>
+
+          {settingsSafe.google_review_url && (
+            <Card className="p-5 rounded-2xl bg-primary/5 border-primary" data-testid="bill-review-card">
+              <div className="text-xs uppercase tracking-[0.2em] font-bold text-accent mb-2">Loved your visit?</div>
+              <div className="font-bold mb-3">Google par review dijiye ⭐</div>
+              <div className="p-2 bg-white rounded-xl border border-border inline-block">
+                <QRCode value={settingsSafe.google_review_url} size={120} />
+              </div>
+              <a href={settingsSafe.google_review_url} target="_blank" rel="noreferrer" className="block mt-3 text-xs text-secondary font-bold underline break-all">{settingsSafe.google_review_url}</a>
+            </Card>
+          )}
         </div>
       </div>
 
