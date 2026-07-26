@@ -1,0 +1,20 @@
+{
+  "appId": "in.funland.crm",
+  "appName": "Funland CRM",
+  "webDir": "build",
+  "server": {
+    "url": "https://game-package-tracker.preview.emergentagent.com",
+    "cleartext": true,
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#F0F8FF",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#FB8500"
+    }
+  }
+}

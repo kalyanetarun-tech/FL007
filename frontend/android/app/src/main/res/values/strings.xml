@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Funland CRM</string>
+    <string name="title_activity_main">Funland CRM</string>
+    <string name="package_name">in.funland.crm</string>
+    <string name="custom_url_scheme">in.funland.crm</string>
+</resources>
