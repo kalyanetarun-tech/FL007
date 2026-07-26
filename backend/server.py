@@ -771,7 +771,7 @@ async def _expand_shortlink(url: str) -> str:
             # Strip tracking / referral params from the expanded URL
             parsed = urlparse(final)
             keep_params = []
-            drop_prefixes = ("utm_", "g_st", "g_ep", "coh", "entry", "skid", "utm")
+            drop_prefixes = ("utm_", "g_st", "g_ep", "coh", "entry", "skid")
             drop_keys = {"utm_source", "utm_medium", "utm_campaign", "g_st", "g_ep", "coh", "entry", "skid", "authuser", "hl"}
             for k, v in parse_qsl(parsed.query, keep_blank_values=False):
                 if k.lower() in drop_keys or any(k.lower().startswith(p) for p in drop_prefixes):
