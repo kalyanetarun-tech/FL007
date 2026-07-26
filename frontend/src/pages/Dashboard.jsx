@@ -12,9 +12,12 @@ import { Button } from "@/components/ui/button";
 export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    api.get("/dashboard/stats").then((r) => setStats(r.data)).catch(() => {});
+    let mounted = true;
+    api.get("/dashboard/stats").then((r) => mounted && setStats(r.data)).catch(() => mounted && setError(true));
+    return () => { mounted = false; };
   }, []);
 
   return (

@@ -10,25 +10,32 @@ export function AuthProvider({ children }) {
   });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const token = localStorage.getItem("funland_token");
-    if (!token) { setLoading(false); return; }
-    const refresh = () => api.get("/auth/me")
+  const refresh = (background = false) =>
+    api.get("/auth/me", { _background: background })
       .then((r) => {
         setUser(r.data);
         localStorage.setItem("funland_user", JSON.stringify(r.data));
       })
-      .catch(() => {
-        localStorage.removeItem("funland_token");
-        localStorage.removeItem("funland_user");
-        setUser(null);
+      .catch((err) => {
+        // Only clear session on explicit 401 during INITIAL foreground load
+        if (!background && err?.response?.status === 401) {
+          localStorage.removeItem("funland_token");
+          localStorage.removeItem("funland_user");
+          setUser(null);
+        }
+        // Silent fail on network hiccups so PWA stays usable offline
       })
       .finally(() => setLoading(false));
-    refresh();
-    // Re-sync permissions on window focus so admin edits reflect for logged-in employees
-    const onFocus = () => { if (localStorage.getItem("funland_token")) refresh(); };
+
+  useEffect(() => {
+    const token = localStorage.getItem("funland_token");
+    if (!token) { setLoading(false); return; }
+    refresh(false);
+    // Re-sync permissions on window focus (silent — won't logout on failure)
+    const onFocus = () => { if (localStorage.getItem("funland_token")) refresh(true); };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = async (email, password) => {
@@ -47,7 +54,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, loading, login, logout, isAdmin: user?.role === "admin" }}>
+    <AuthCtx.Provider value={{ user, loading, login, logout, refresh: () => refresh(true), isAdmin: user?.role === "admin" }}>
       {children}
     </AuthCtx.Provider>
   );

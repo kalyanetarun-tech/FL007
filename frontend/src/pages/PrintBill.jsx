@@ -7,12 +7,13 @@ export default function PrintBill() {
   const [bill, setBill] = useState(null);
   const [settings, setSettings] = useState(null);
   useEffect(() => {
-    api.get(`/bills/${id}`).then((r) => setBill(r.data));
-    api.get("/settings").then((r) => setSettings(r.data));
+    api.get(`/bills/${id}`).then((r) => setBill(r.data)).catch(() => {});
+    api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
   }, [id]);
   useEffect(() => { if (bill && settings) setTimeout(() => window.print(), 400); }, [bill, settings]);
   if (!bill) return <div className="p-8 text-sm">Loading…</div>;
   const park = settings?.park_name || "Funland Adventure Park";
+  const items = bill.items || [];
   return (
     <div className="min-h-screen bg-white text-black p-4 print:p-0 font-sans">
       <style>{`
@@ -40,19 +41,19 @@ export default function PrintBill() {
           <thead><tr className="border-t border-b border-dashed border-black">
             <th className="text-left py-1">Item</th><th className="text-right">Qty</th><th className="text-right">Amt</th></tr></thead>
           <tbody>
-            {bill.items.map((it, i) => (
+            {items.map((it, i) => (
               <tr key={i}>
                 <td className="py-0.5">{it.name}<div className="text-[9px] uppercase text-gray-500">{it.category || it.kind}{it.gst_percent ? ` · GST ${it.gst_percent}%` : ""}</div></td>
                 <td className="text-right align-top">{it.qty}</td>
-                <td className="text-right align-top">{(it.price * it.qty).toFixed(0)}</td>
+                <td className="text-right align-top">{((it.price || 0) * (it.qty || 0)).toFixed(0)}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <div className="border-t border-dashed border-black pt-1 text-[11px] space-y-0.5">
           <div className="flex justify-between"><span>Subtotal:</span><span>{inr(bill.subtotal)}</span></div>
-          {bill.discount > 0 && <div className="flex justify-between"><span>Discount{bill.discount_percent ? ` (${bill.discount_percent}%)` : ""}:</span><span>-{inr(bill.discount)}</span></div>}
-          {bill.gst_amount > 0 && <div className="flex justify-between"><span>GST:</span><span>{inr(bill.gst_amount)}</span></div>}
+          {(bill.discount || 0) > 0 && <div className="flex justify-between"><span>Discount{bill.discount_percent ? ` (${bill.discount_percent}%)` : ""}:</span><span>-{inr(bill.discount)}</span></div>}
+          {(bill.gst_amount || 0) > 0 && <div className="flex justify-between"><span>GST:</span><span>{inr(bill.gst_amount)}</span></div>}
           <div className="flex justify-between text-base font-black border-t border-dashed border-black pt-1"><span>TOTAL:</span><span>{inr(bill.total)}</span></div>
           <div className="flex justify-between"><span>Payment:</span><span>{bill.payment_method.toUpperCase()} - {bill.payment_status.toUpperCase()}</span></div>
         </div>

@@ -17,6 +17,8 @@ import Marketing from "@/pages/Marketing";
 import Settings from "@/pages/Settings";
 import { CustomersList, CustomerDetail } from "@/pages/Customers";
 import PrintBill from "@/pages/PrintBill";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import ConnectionStatus from "@/components/ConnectionStatus";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children, adminOnly, perm }) {
@@ -30,29 +32,32 @@ function Protected({ children, adminOnly, perm }) {
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Toaster richColors position="top-right" />
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Protected><Dashboard /></Protected>} />
-          <Route path="/inquiries" element={<Protected perm="inquiries"><Inquiries /></Protected>} />
-          <Route path="/visit" element={<Protected perm="visit"><NewVisit /></Protected>} />
-          <Route path="/bills" element={<Protected perm="bills"><BillsList /></Protected>} />
-          <Route path="/bills/:id" element={<Protected perm="bills"><BillDetail /></Protected>} />
-          <Route path="/bills/:id/print" element={<PrintBill />} />
-          <Route path="/customers" element={<Protected perm="customers"><CustomersList /></Protected>} />
-          <Route path="/customers/:key" element={<Protected perm="customers"><CustomerDetail /></Protected>} />
-          <Route path="/games" element={<Protected perm="games"><Games /></Protected>} />
-          <Route path="/packages" element={<Protected perm="packages"><Packages /></Protected>} />
-          <Route path="/attendance" element={<Protected perm="attendance"><Attendance /></Protected>} />
-          <Route path="/staff" element={<Protected adminOnly><Staff /></Protected>} />
-          <Route path="/marketing" element={<Protected adminOnly><Marketing /></Protected>} />
-          <Route path="/settings" element={<Protected adminOnly><Settings /></Protected>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
+          <Toaster richColors position="top-right" />
+          <ConnectionStatus />
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Protected><Dashboard /></Protected>} />
+            <Route path="/inquiries" element={<Protected perm="inquiries"><Inquiries /></Protected>} />
+            <Route path="/visit" element={<Protected perm="visit"><NewVisit /></Protected>} />
+            <Route path="/bills" element={<Protected perm="bills"><BillsList /></Protected>} />
+            <Route path="/bills/:id" element={<Protected perm="bills"><BillDetail /></Protected>} />
+            <Route path="/bills/:id/print" element={<PrintBill />} />
+            <Route path="/customers" element={<Protected perm="customers"><CustomersList /></Protected>} />
+            <Route path="/customers/:key" element={<Protected perm="customers"><CustomerDetail /></Protected>} />
+            <Route path="/games" element={<Protected perm="games"><Games /></Protected>} />
+            <Route path="/packages" element={<Protected perm="packages"><Packages /></Protected>} />
+            <Route path="/attendance" element={<Protected perm="attendance"><Attendance /></Protected>} />
+            <Route path="/staff" element={<Protected adminOnly><Staff /></Protected>} />
+            <Route path="/marketing" element={<Protected adminOnly><Marketing /></Protected>} />
+            <Route path="/settings" element={<Protected adminOnly><Settings /></Protected>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 
