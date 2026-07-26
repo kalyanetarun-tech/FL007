@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 4 (reliability hardening) fully verified. Backend: /api/ping returns 200 in ~90ms with {ok:true, ts:ISO}, /api/dashboard/stats & /api/bills also <100ms (Motor pool + 5s selection timeout not causing regressions). Pytest regression 31/31 (1 flaky round-robin test failed on first run due to leftover DB counter state from prior iterations, PASSED on immediate rerun — not related to reliability layer). PWA: /service-worker.js served 200 with application/javascript; /manifest.json valid JSON with short_name='Funland'. Frontend reliability layer verified: (a) startReliability() runs cleanly on load, zero reliability-related console errors; (b) heartbeat: focus event triggered a /api/ping request (confirmed in network log); (c) unhandledrejection handler ACTIVE — dispatched Promise.reject inside detached setTimeout, page survived (body still populated), reliability warning '[reliability] unhandled rejection: Error: TEST_reject' logged, e.preventDefault() called; (d) window.error handler: setTimeout throw did not blank the page (body_len=496 stayed intact); (e) ConnectionStatus 3-state banner works — offline event → red 'Offline — reconnecting…', online event → green 'Wapas connected' (both text confirmed). Full nav regression: /, /bills (22 cards), /inquiries, /customers, /attendance all render non-blank; BillDetail (/bills/c4cab932-...) renders full invoice with items, GST column, ₹750 total, Mark Paid/Send/Print Receipt actions (screenshot confirmed). Login works with admin@funland.in / Funland@123. No console errors introduced by reliability additions (only unrelated ERR_NAME_NOT_RESOLVED for one external resource).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "N/A - test suite", "issue": "test_iteration2.py::test_webhook_round_robin_two_execs flaky: fails on 1st run (counter carryover: {3,1} vs expected {2,2}), passes on immediate rerun. Root cause is stateful round-robin index persisted in DB from prior iterations, not reliability layer. Consider resetting counter in test setup."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration2.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "(Low priority) Fix flaky round-robin test by resetting the DB counter in fixture setup, or make the assertion tolerate ±1 imbalance."
+  ],
+  "critical_code_review_comments": [
+    "reliability.js: heartbeat only fires when localStorage.funland_token is set — good, prevents unauth pings; setInterval(45s) never cleared but that's expected for app lifetime.",
+    "service-worker.js correctly bypasses /api/* (never caches API responses) — critical for data freshness. Network-first for shell with cache fallback is correct.",
+    "ConnectionStatus subscribes to both browser online/offline AND backend heartbeat via onBackendStatusChange — 3-state UX now complete (fixes gap noted in iter3 review).",
+    "backend /api/ping raises 503 on db failure — frontend axios treats non-200 as failure via setStatus(false) — correct.",
+    "Motor client timeouts (serverSelectionTimeoutMS=5000, socketTimeoutMS=15000) mean worst-case /api/ping latency is bounded at ~5s; frontend passes timeout:8000 which safely accommodates.",
+    "server.py still 879 lines — recurring recommendation to split into routers."
+  ],
+  "updated_files": ["/app/test_reports/iteration_4.json"],
+  "success_rate": {"backend": "100% (31/31 after 1 flaky retry, /api/ping 200)", "frontend": "100% of reliability scenarios + regression pages"},
+  "test_credentials": "admin@funland.in / Funland@123",
+  "seed_data_creation": "None new.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reliability hardening layer is stable. To simulate unhandledrejection safely in Playwright, DO NOT do `await page.evaluate('Promise.reject(...)')` — Playwright's own await will throw. Instead wrap in detached setTimeout: `await page.evaluate('() => setTimeout(() => Promise.reject(new Error()), 0)')`. Heartbeat only pings when funland_token is in localStorage; to force a ping, dispatch 'focus' or 'online' event. ConnectionStatus banner has data-testid='conn-banner'. Backend /api/ping is public (no auth needed) and does a `db.command('ping')` — verifies DB reachability. Flaky round-robin test may need attention in future iterations.",
+  "rca of the issue": "N/A — reliability additions verified non-regressive. Flaky test RCA: round-robin webhook assignment stores next-index in DB; leftover state from prior test runs skews the first fresh assignment. Mitigation: reset webhook_assignment_state doc in test fixture."
+}

@@ -22,7 +22,14 @@ from pydantic import BaseModel, Field, EmailStr
 
 # ---------------- Setup ----------------
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(
+    mongo_url,
+    serverSelectionTimeoutMS=5000,
+    connectTimeoutMS=5000,
+    socketTimeoutMS=15000,
+    maxPoolSize=50,
+    retryWrites=True,
+)
 db = client[os.environ['DB_NAME']]
 
 JWT_SECRET = os.environ['JWT_SECRET']
@@ -850,6 +857,16 @@ async def shutdown():
 @api.get("/")
 async def root():
     return {"service": "Funland CRM", "status": "ok"}
+
+@api.get("/ping")
+async def ping():
+    """Ultra-lightweight health probe used by frontend heartbeat."""
+    try:
+        # tiny mongodb touch — verifies DB is reachable
+        await db.command("ping")
+        return {"ok": True, "ts": now_iso()}
+    except Exception as e:
+        raise HTTPException(503, f"db unavailable: {e}")
 
 app.include_router(api)
 app.add_middleware(
