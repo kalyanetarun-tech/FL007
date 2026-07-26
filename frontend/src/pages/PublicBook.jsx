@@ -16,7 +16,6 @@ const inr = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractio
 /* ---------- Public Book page (customer-facing) ---------- */
 export function PublicBook() {
   const [catalog, setCatalog] = useState(null);
-  const [tab, setTab] = useState("packages");
   const [cart, setCart] = useState([]);
   const [form, setForm] = useState({ customer_name: "", customer_phone: "", customer_email: "", booking_date: new Date().toISOString().slice(0, 10), booking_time: "", pax: 1, notes: "" });
   const [busy, setBusy] = useState(false);
@@ -66,33 +65,28 @@ export function PublicBook() {
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-2">{catalog.park_name}</div>
         <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-2" style={{ fontFamily: "Fraunces, serif" }}>Advance booking karke aao — no wait!</h1>
-        <p className="text-muted-foreground mb-8">Package ya games pehle select karo, payment karo aur direct entry lo.</p>
+        <p className="text-muted-foreground mb-8">Apna birthday ya party package pehle select karo, payment karo aur direct entry lo.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <div className="lg:col-span-3">
             <Card className="p-5 rounded-2xl mb-4">
-              <div className="flex gap-2 mb-4">
-                <button onClick={() => setTab("packages")} className={`px-4 py-2 rounded-full text-sm font-bold uppercase ${tab === "packages" ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"}`}>Packages</button>
-                <button onClick={() => setTab("games")} className={`px-4 py-2 rounded-full text-sm font-bold uppercase ${tab === "games" ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"}`}>Games</button>
-              </div>
+              <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">Available Packages</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {tab === "packages" && catalog.packages.map((p) => (
-                  <button key={p.id} onClick={() => add(p, "package")} className="text-left p-4 rounded-xl border border-border hover:border-accent bg-white transition-colors">
+                {catalog.packages.map((p) => (
+                  <button key={p.id} data-testid={`pub-pkg-${p.id}`} onClick={() => add(p, "package")} className="text-left p-4 rounded-xl border border-border hover:border-accent bg-white transition-colors">
                     <div className="flex items-center gap-2 mb-1"><PartyPopper className="h-4 w-4 text-accent" /><div className="font-bold">{p.name}</div></div>
                     <div className="text-xs uppercase text-muted-foreground tracking-widest font-bold">{p.type} · {p.pax} pax</div>
                     {p.description && <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</div>}
+                    {p.inclusions?.length > 0 && (
+                      <ul className="text-xs text-muted-foreground mt-2 space-y-0.5">
+                        {p.inclusions.slice(0, 3).map((inc, i) => <li key={i} className="flex gap-1"><span className="text-accent">•</span>{inc}</li>)}
+                        {p.inclusions.length > 3 && <li className="text-[10px]">+ {p.inclusions.length - 3} more</li>}
+                      </ul>
+                    )}
                     <div className="text-lg font-black text-accent mt-2">{inr(priceOf(p))}</div>
                   </button>
                 ))}
-                {tab === "games" && catalog.games.map((g) => (
-                  <button key={g.id} onClick={() => add(g, "game")} className="text-left p-4 rounded-xl border border-border hover:border-accent bg-white transition-colors">
-                    <div className="flex items-center gap-2 mb-1"><Gamepad2 className="h-4 w-4 text-secondary" /><div className="font-bold">{g.name}</div></div>
-                    <div className="text-xs uppercase text-muted-foreground tracking-widest font-bold">{g.category} {g.duration_min ? `· ${g.duration_min} min` : ""}</div>
-                    <div className="text-lg font-black text-accent mt-2">{inr(priceOf(g))}</div>
-                  </button>
-                ))}
-                {tab === "packages" && catalog.packages.length === 0 && <div className="col-span-full text-center text-sm text-muted-foreground py-8">No packages available</div>}
-                {tab === "games" && catalog.games.length === 0 && <div className="col-span-full text-center text-sm text-muted-foreground py-8">No games available</div>}
+                {catalog.packages.length === 0 && <div className="col-span-full text-center text-sm text-muted-foreground py-10">Packages abhi available nahi hain. Kripya park pe call karke booking karo.</div>}
               </div>
             </Card>
 
