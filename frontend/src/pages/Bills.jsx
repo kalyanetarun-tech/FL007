@@ -8,11 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import QRCode from "react-qr-code";
 import { toast } from "sonner";
-import { Receipt, Send, Download, MessageCircle, Mail, Phone, ExternalLink } from "lucide-react";
+import { Receipt, Send, Printer, MessageCircle, Mail, Phone, ExternalLink } from "lucide-react";
 
 export function BillsList() {
-  const [bills, setBills] = useState(null); // null = loading, [] = empty
+  const [bills, setBills] = useState(null);
   useEffect(() => { api.get("/bills").then((r) => setBills(r.data)).catch(() => setBills([])); }, []);
+  const openPrint = (id, e) => { e.preventDefault(); e.stopPropagation(); window.open(`/bills/${id}/print`, "_blank"); };
   return (
     <div>
       <PageHead title="Bills" subtitle="Sabhi customer bills aur payment status" />
@@ -23,8 +24,8 @@ export function BillsList() {
       ) : bills.length === 0 ? <EmptyState title="No bills yet" description="Naya bill banane ke liye 'New Bill' pe jao." /> :
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
           {bills.map((b) => (
-            <Link key={b.id} to={`/bills/${b.id}`} data-testid={`bill-card-${b.id}`}>
-              <Card className="p-5 rounded-2xl hover:shadow-md transition-shadow cursor-pointer h-full">
+            <Card key={b.id} className="p-5 rounded-2xl hover:shadow-md transition-shadow" data-testid={`bill-card-${b.id}`}>
+              <Link to={`/bills/${b.id}`} className="block">
                 <div className="flex items-start justify-between mb-2">
                   <div className="font-mono text-xs uppercase tracking-wider text-muted-foreground">{b.bill_no}</div>
                   <Badge className={`rounded-full ${b.payment_status === "paid" ? "bg-emerald-100 text-emerald-800 border-emerald-300" : "bg-primary/20 text-accent border-primary"}`}>{b.payment_status}</Badge>
@@ -33,8 +34,11 @@ export function BillsList() {
                 <div className="text-sm text-muted-foreground mb-3">{b.customer_phone || "—"} · {b.items?.length || 0} items</div>
                 <div className="text-3xl font-black text-accent">{inr(b.total)}</div>
                 <div className="text-xs text-muted-foreground mt-2">{b.created_at ? new Date(b.created_at).toLocaleString() : ""}</div>
-              </Card>
-            </Link>
+              </Link>
+              <Button data-testid={`bill-quick-print-${b.id}`} onClick={(e) => openPrint(b.id, e)} variant="outline" size="sm" className="w-full mt-3 rounded-full font-bold border-accent text-accent hover:bg-accent hover:text-accent-foreground">
+                <Printer className="h-4 w-4 mr-1" /> Print Receipt
+              </Button>
+            </Card>
           ))}
         </div>}
     </div>
@@ -89,8 +93,8 @@ export function BillDetail() {
         action={
           <div className="flex flex-wrap gap-2">
             {bill.payment_status === "pending" && <Button data-testid="mark-paid" onClick={markPaid} className="rounded-full bg-emerald-500 hover:bg-emerald-600 text-white">Mark Paid</Button>}
+            <Button data-testid="print-btn" onClick={() => window.open(`/bills/${bill.id}/print`, "_blank")} className="rounded-full bg-accent hover:bg-accent/90 text-accent-foreground font-bold h-11 px-6"><Printer className="h-4 w-4 mr-1" /> Print Receipt</Button>
             <Button data-testid="send-btn" onClick={() => setSendOpen(true)} variant="outline" className="rounded-full"><Send className="h-4 w-4 mr-1" /> Send</Button>
-            <Button data-testid="print-btn" onClick={() => window.open(`/bills/${bill.id}/print`, "_blank")} variant="outline" className="rounded-full"><Download className="h-4 w-4 mr-1" /> Print Receipt</Button>
           </div>
         }
       />

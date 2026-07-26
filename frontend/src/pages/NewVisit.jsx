@@ -92,7 +92,10 @@ export default function NewVisit() {
         gst_percent: 0,
         payment_method: paymentMethod, payment_status: paymentStatus, notes,
       });
-      toast.success(`Bill ${data.bill_no} created!`);
+      toast.success(`Bill ${data.bill_no} created! Print button click karo`, {
+        duration: 6000,
+        action: { label: "🖨️ Print Now", onClick: () => window.open(`/bills/${data.id}/print`, "_blank") },
+      });
       nav(`/bills/${data.id}`);
     } catch (e) { toast.error(fmtErr(e)); }
     finally { setBusy(false); }
