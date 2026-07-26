@@ -8,24 +8,25 @@ import {
 import { Button } from "@/components/ui/button";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
-  { to: "/inquiries", label: "Inquiries", icon: MessageSquare, testid: "nav-inquiries" },
-  { to: "/visit", label: "New Bill", icon: Receipt, testid: "nav-visit" },
-  { to: "/bills", label: "Bills", icon: Receipt, testid: "nav-bills" },
-  { to: "/customers", label: "Customers", icon: Contact, testid: "nav-customers" },
-  { to: "/games", label: "Games", icon: Gamepad2, testid: "nav-games" },
-  { to: "/packages", label: "Packages", icon: PartyPopper, testid: "nav-packages" },
-  { to: "/attendance", label: "Attendance", icon: UserCheck, testid: "nav-attendance" },
-  { to: "/staff", label: "Staff", icon: Users, testid: "nav-staff", adminOnly: true },
-  { to: "/marketing", label: "Marketing", icon: Megaphone, testid: "nav-marketing", adminOnly: true },
-  { to: "/settings", label: "Settings", icon: SettingsIcon, testid: "nav-settings", adminOnly: true },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard", perm: "dashboard" },
+  { to: "/inquiries", label: "Inquiries", icon: MessageSquare, testid: "nav-inquiries", perm: "inquiries" },
+  { to: "/visit", label: "New Bill", icon: Receipt, testid: "nav-visit", perm: "visit" },
+  { to: "/bills", label: "Bills", icon: Receipt, testid: "nav-bills", perm: "bills" },
+  { to: "/customers", label: "Customers", icon: Contact, testid: "nav-customers", perm: "customers" },
+  { to: "/games", label: "Games", icon: Gamepad2, testid: "nav-games", perm: "games" },
+  { to: "/packages", label: "Packages", icon: PartyPopper, testid: "nav-packages", perm: "packages" },
+  { to: "/attendance", label: "Attendance", icon: UserCheck, testid: "nav-attendance", perm: "attendance" },
+  { to: "/staff", label: "Staff", icon: Users, testid: "nav-staff", perm: "staff", adminOnly: true },
+  { to: "/marketing", label: "Marketing", icon: Megaphone, testid: "nav-marketing", perm: "marketing", adminOnly: true },
+  { to: "/settings", label: "Settings", icon: SettingsIcon, testid: "nav-settings", perm: "settings", adminOnly: true },
 ];
 
 export default function Layout({ children }) {
   const { user, isAdmin, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const loc = useLocation();
-  const items = NAV.filter((n) => !n.adminOnly || isAdmin);
+  const perms = user?.permissions || [];
+  const items = NAV.filter((n) => isAdmin ? true : perms.includes(n.perm) && !n.adminOnly);
 
   return (
     <div className="min-h-screen flex bg-background">

@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 2 (permissions, per-item GST, percent discount, unified webhook inquiries with round-robin, remarks) fully verified. Backend: 11/11 new pytest cases pass (backend_test.py iter1 suite + iter2 suite total 31 tests, 30 pass; 1 flaky = webhook round-robin fairness assertion when suites run in parallel share the same rr_marketing counter — see RCA). Frontend: admin login → Staff Add/Edit with 8 permission checkboxes + Marketing Exec toggle works, checkbox state persists on edit reopen; Channel Setup dialog exposes all 5 webhook copy buttons (whatsapp/instagram/facebook/sms/call); Inquiry detail dialog opens with Status + Assign (admin-visible) dropdowns + Remarks timeline, remark save appears immediately; New Bill page shows disc-mode-percent/flat toggle, per-line category & GST inputs, bill generation navigates to /bills/{id}; Employee with only [dashboard, inquiries] perms sees exactly those two nav items — /games direct URL correctly redirects to '/'; Marketing Exec employee sees Mine/All scope toggles on Inquiries page.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "All dialogs", "issues": ["Persistent a11y warning: DialogContent missing Description/aria-describedby (also reported in iter1). Non-blocking but noisy in console."]},
+      {"screen": "Dashboard", "issues": ["Recharts width(-1)/height(-1) console warning on initial mount — cosmetic, chart renders correctly (also from iter1)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration2.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Add DialogDescription/aria-describedby to shadcn Dialog usages to silence a11y warnings.",
+    "(Optional low-priority) The `rr_marketing` MongoDB counter is process-global and shared across the whole DB. In tests running in parallel workers that also fire webhook/create-inquiry calls, the first-picked exec can shift by 1 – functionally correct, but fairness assertion may miss by 1 under concurrency. Consider (a) resetting counter on demand for test isolation, or (b) using timestamp-based selection. Not a production bug."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~860 lines and combines auth, users, inquiries, bills, attendance, campaigns, integrations. Strongly recommend splitting into routers/ modules — maintainability risk growing.",
+    "_pick_next_marketing_exec sorts execs by name — deterministic and good; however counter increment is not protected against races (find_one_and_update is atomic so OK in practice).",
+    "PATCH /users allows updating role but doesn't automatically reset permissions when demoting admin→employee (an admin's `permissions=ALL_PERMS` will remain after downgrade). Consider stripping admin-only perms on role change.",
+    "add_remark returns the whole inquiry doc which is fine, but consider returning only the appended remark to save payload size.",
+    "Bill compute: when `discount_percent > 0` AND `discount > 0`, percent wins silently. Add explicit note or reject the ambiguous combo.",
+    "Webhook endpoint /inquiries/webhook/{source} is public (no auth) — currently expected, but no rate-limit or signature verification. Add a shared-secret query param or HMAC before production.",
+    "Layout NAV filtering relies on `user.permissions` from stored user object in localStorage — after admin edits perms of a currently-logged-in employee, that employee's local user object doesn't refresh until re-login. Consider auto-refreshing via /auth/me on route change."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration2.py",
+    "/app/test_reports/iteration_2.json"
+  ],
+  "success_rate": {"backend": "100% isolated (11/11 iter2, 20/20 iter1); 30/31 when both suites run together in parallel (1 test-isolation flake)", "frontend": "100% of iteration-2 flows tested"},
+  "test_credentials": "admin@funland.in / Funland@123 (seeded). Employees created dynamically via POST /api/users with Pass@1234.",
+  "seed_data_creation": "Test emps prefixed TEST_/e2e2_/e2e3_ deleted on teardown. Some test inquiries (E2E_UI_Inq, TEST_rr_*, TEST_Whatsapp_Lead) remain in DB — harmless.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression suites: /app/backend/tests/backend_test.py (iter1, 20 tests) + /app/backend/tests/test_iteration2.py (iter2, 11 tests). Run both together with `pytest /app/backend/tests -q`. Note the shared rr_marketing counter means webhook round-robin fairness test may be flaky when other suite fires webhooks/inquiries at the same time — assert 'each in {exec_ids}' rather than exact counts if running in higher concurrency. All iteration-2 feature testids: perm-*, staff-mkexec, edit-staff-*, disc-mode-percent, disc-mode-flat, line-cat-*, line-gst-*, webhook-btn, copy-webhook-*, scope-mine, scope-all, detail-status, detail-assign, remark-input, remark-add, remark-list.",
+  "rca of the issue": "N/A — no production bugs found. The one flaky test is a pure test-isolation artifact (shared MongoDB counter for round-robin picking incremented by other parallel test workers)."
+}

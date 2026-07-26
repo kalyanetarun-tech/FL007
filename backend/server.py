@@ -71,6 +71,10 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(securit
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(401, "User not found")
+    if user.get("role") != "admin" and not user.get("permissions"):
+        user["permissions"] = DEFAULT_EMP_PERMS
+    if user.get("role") == "admin":
+        user["permissions"] = ALL_PERMS
     return user
 
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
@@ -89,12 +93,16 @@ class UserCreate(BaseModel):
     name: str
     phone: Optional[str] = ""
     role: Literal["admin", "employee"] = "employee"
+    permissions: List[str] = []
+    is_marketing_exec: bool = False
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     role: Optional[Literal["admin", "employee"]] = None
     password: Optional[str] = None
+    permissions: Optional[List[str]] = None
+    is_marketing_exec: Optional[bool] = None
 
 class GameIn(BaseModel):
     name: str
@@ -120,7 +128,7 @@ class InquiryIn(BaseModel):
     phone: str
     email: Optional[str] = ""
     source: Literal["walk-in", "phone", "instagram", "facebook", "whatsapp", "referral", "other"] = "walk-in"
-    interest: Optional[str] = ""  # package or game
+    interest: Optional[str] = ""
     notes: Optional[str] = ""
     follow_up_date: Optional[str] = None
     status: Literal["new", "contacted", "converted", "lost"] = "new"
@@ -129,20 +137,29 @@ class InquiryStatusUpdate(BaseModel):
     status: Literal["new", "contacted", "converted", "lost"]
     notes: Optional[str] = None
 
+class InquiryAssign(BaseModel):
+    assigned_to: Optional[str] = None  # user id, null to unassign
+
+class RemarkIn(BaseModel):
+    text: str
+
 class BillItem(BaseModel):
     kind: Literal["game", "package", "custom"]
     ref_id: Optional[str] = None
     name: str
     price: float
     qty: int = 1
+    gst_percent: float = 0  # per-line GST (e.g. food 5%, activity 18%)
+    category: Optional[str] = None  # optional label: "food" / "activity" / "entry"
 
 class BillIn(BaseModel):
     customer_name: str
     customer_phone: str = ""
     customer_email: Optional[str] = ""
     items: List[BillItem]
-    discount: float = 0
-    gst_percent: float = 0
+    discount: float = 0            # flat rupees discount
+    discount_percent: float = 0    # OR percent discount (5-100)
+    gst_percent: float = 0         # legacy: applied only if no per-item GST provided
     payment_method: Literal["cash", "upi_qr", "razorpay", "card", "other"] = "cash"
     payment_status: Literal["pending", "paid"] = "pending"
     notes: Optional[str] = ""
@@ -178,7 +195,12 @@ async def login(data: LoginIn):
     token = make_token(user["id"], user["role"])
     return {
         "token": token,
-        "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"], "phone": user.get("phone", "")},
+        "user": {
+            "id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"],
+            "phone": user.get("phone", ""),
+            "permissions": user.get("permissions") or (ALL_PERMS if user["role"] == "admin" else DEFAULT_EMP_PERMS),
+            "is_marketing_exec": user.get("is_marketing_exec", False),
+        },
     }
 
 @api.get("/auth/me")
@@ -191,17 +213,23 @@ async def list_users(_: dict = Depends(require_admin)):
     users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
     return users
 
+DEFAULT_EMP_PERMS = ["dashboard", "inquiries", "visit", "bills", "customers", "games", "packages", "attendance"]
+ALL_PERMS = DEFAULT_EMP_PERMS + ["staff", "marketing", "settings"]
+
 @api.post("/users")
 async def create_user(data: UserCreate, _: dict = Depends(require_admin)):
     email = data.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already exists")
+    perms = data.permissions if data.permissions else (ALL_PERMS if data.role == "admin" else DEFAULT_EMP_PERMS)
     doc = {
         "id": new_id(),
         "email": email,
         "name": data.name,
         "phone": data.phone or "",
         "role": data.role,
+        "permissions": perms,
+        "is_marketing_exec": data.is_marketing_exec,
         "password_hash": hash_pw(data.password),
         "created_at": now_iso(),
     }
@@ -277,11 +305,23 @@ async def list_inquiries(user: dict = Depends(get_current_user)):
     return await db.inquiries.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
 
 # Webhook endpoint - accepts inquiries from external sources (WhatsApp/Twilio, Meta, Zapier, etc.)
+async def _pick_next_marketing_exec() -> Optional[dict]:
+    """Round-robin pick next marketing executive."""
+    execs = await db.users.find({"is_marketing_exec": True}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(100)
+    if not execs:
+        return None
+    counter_doc = await db.counters.find_one_and_update(
+        {"id": "rr_marketing"}, {"$inc": {"v": 1}}, upsert=True, return_document=True
+    )
+    idx = ((counter_doc or {}).get("v", 0) - 1) % len(execs)
+    return execs[max(idx, 0)]
+
 @api.post("/inquiries/webhook/{source}")
 async def inquiry_webhook(source: str, payload: dict):
     """Public webhook - configure your channel provider to POST here.
     Expected payload: {name?, phone?, email?, message?, notes?}."""
     src_map = {"whatsapp": "whatsapp", "instagram": "instagram", "facebook": "facebook", "sms": "phone", "call": "phone", "web": "other"}
+    assignee = await _pick_next_marketing_exec()
     doc = {
         "id": new_id(),
         "name": payload.get("name") or payload.get("from") or "Unknown",
@@ -291,20 +331,27 @@ async def inquiry_webhook(source: str, payload: dict):
         "interest": payload.get("interest", ""),
         "notes": payload.get("message") or payload.get("notes", ""),
         "status": "new",
+        "remarks": [],
+        "assigned_to": assignee["id"] if assignee else None,
+        "assigned_to_name": assignee["name"] if assignee else None,
         "created_by": "webhook",
         "created_by_name": f"{source} webhook",
         "created_at": now_iso(),
     }
     await db.inquiries.insert_one(doc)
     doc.pop("_id", None)
-    logger.info(f"Webhook inquiry from {source}: {doc['name']}")
-    return {"ok": True, "id": doc["id"]}
+    logger.info(f"Webhook inquiry from {source}: {doc['name']} → {assignee['name'] if assignee else 'unassigned'}")
+    return {"ok": True, "id": doc["id"], "assigned_to": doc.get("assigned_to_name")}
 
 @api.post("/inquiries")
 async def create_inquiry(data: InquiryIn, user: dict = Depends(get_current_user)):
+    assignee = await _pick_next_marketing_exec()
     doc = {
         "id": new_id(),
         **data.model_dump(),
+        "remarks": [],
+        "assigned_to": assignee["id"] if assignee else None,
+        "assigned_to_name": assignee["name"] if assignee else None,
         "created_by": user["id"],
         "created_by_name": user["name"],
         "created_at": now_iso(),
@@ -315,20 +362,58 @@ async def create_inquiry(data: InquiryIn, user: dict = Depends(get_current_user)
 
 @api.patch("/inquiries/{iid}/status")
 async def update_inquiry_status(iid: str, data: InquiryStatusUpdate, user: dict = Depends(get_current_user)):
-    """Both roles can update status (mark as contacted/converted). Actual editing of fields is blocked."""
+    """Both roles can update status (mark as contacted/converted)."""
     update = {"status": data.status}
     if data.notes is not None:
         update["notes"] = data.notes
     await db.inquiries.update_one({"id": iid}, {"$set": update})
     return await db.inquiries.find_one({"id": iid}, {"_id": 0})
 
+@api.patch("/inquiries/{iid}/assign")
+async def assign_inquiry(iid: str, data: InquiryAssign, _: dict = Depends(require_admin)):
+    """Admin can reassign inquiry to a specific executive (or unassign with null)."""
+    upd = {"assigned_to": None, "assigned_to_name": None}
+    if data.assigned_to:
+        target = await db.users.find_one({"id": data.assigned_to}, {"_id": 0, "id": 1, "name": 1})
+        if not target:
+            raise HTTPException(404, "User not found")
+        upd = {"assigned_to": target["id"], "assigned_to_name": target["name"]}
+    await db.inquiries.update_one({"id": iid}, {"$set": upd})
+    return await db.inquiries.find_one({"id": iid}, {"_id": 0})
+
+@api.post("/inquiries/{iid}/remarks")
+async def add_remark(iid: str, data: RemarkIn, user: dict = Depends(get_current_user)):
+    """Any staff can add a remark (why not converted, follow-up etc.)."""
+    if not data.text.strip():
+        raise HTTPException(400, "Remark text required")
+    remark = {"text": data.text.strip(), "by": user["name"], "by_id": user["id"], "at": now_iso()}
+    await db.inquiries.update_one({"id": iid}, {"$push": {"remarks": remark}})
+    return await db.inquiries.find_one({"id": iid}, {"_id": 0})
+
 # ---------------- Bills / Visits ----------------
-def _compute_bill_totals(items, discount, gst_percent):
-    subtotal = sum(i["price"] * i["qty"] for i in items)
-    after_discount = max(subtotal - discount, 0)
-    gst_amount = round(after_discount * (gst_percent / 100.0), 2)
+def _compute_bill_totals(items, discount, discount_percent, legacy_gst_percent):
+    """Return (subtotal, discount_amount, gst_amount, total) with per-item GST support.
+    If any item has gst_percent > 0, per-item GST is used. Otherwise legacy_gst_percent applies to (subtotal - discount)."""
+    subtotal = round(sum(i["price"] * i["qty"] for i in items), 2)
+    # discount: percent takes precedence if > 0
+    if discount_percent and discount_percent > 0:
+        pct = min(max(discount_percent, 0), 100)
+        disc_amount = round(subtotal * pct / 100.0, 2)
+    else:
+        disc_amount = round(min(max(discount, 0), subtotal), 2)
+    after_discount = max(subtotal - disc_amount, 0)
+    ratio = (after_discount / subtotal) if subtotal > 0 else 0
+    has_line_gst = any((i.get("gst_percent") or 0) > 0 for i in items)
+    if has_line_gst:
+        gst_amount = 0.0
+        for it in items:
+            line_taxable = it["price"] * it["qty"] * ratio
+            gst_amount += line_taxable * ((it.get("gst_percent") or 0) / 100.0)
+        gst_amount = round(gst_amount, 2)
+    else:
+        gst_amount = round(after_discount * (legacy_gst_percent / 100.0), 2)
     total = round(after_discount + gst_amount, 2)
-    return round(subtotal, 2), gst_amount, total
+    return subtotal, disc_amount, gst_amount, total
 
 def _bill_number():
     return "FL-" + datetime.now(timezone.utc).strftime("%y%m%d") + "-" + uuid.uuid4().hex[:5].upper()
@@ -347,7 +432,7 @@ async def get_bill(bid: str, user: dict = Depends(get_current_user)):
 @api.post("/bills")
 async def create_bill(data: BillIn, user: dict = Depends(get_current_user)):
     items = [i.model_dump() for i in data.items]
-    subtotal, gst_amount, total = _compute_bill_totals(items, data.discount, data.gst_percent)
+    subtotal, disc_amount, gst_amount, total = _compute_bill_totals(items, data.discount, data.discount_percent, data.gst_percent)
     doc = {
         "id": new_id(),
         "bill_no": _bill_number(),
@@ -355,7 +440,8 @@ async def create_bill(data: BillIn, user: dict = Depends(get_current_user)):
         "customer_phone": data.customer_phone,
         "customer_email": data.customer_email,
         "items": items,
-        "discount": data.discount,
+        "discount": disc_amount,
+        "discount_percent": data.discount_percent,
         "gst_percent": data.gst_percent,
         "gst_amount": gst_amount,
         "subtotal": subtotal,
@@ -722,10 +808,21 @@ async def seed_admin():
             "name": "Funland Manager",
             "phone": "",
             "role": "admin",
+            "permissions": ALL_PERMS,
+            "is_marketing_exec": False,
             "password_hash": hash_pw(pw),
             "created_at": now_iso(),
         })
         logger.info(f"Seeded admin: {email}")
+    else:
+        # Backfill missing fields for existing users
+        upd = {}
+        if "permissions" not in existing:
+            upd["permissions"] = ALL_PERMS if existing.get("role") == "admin" else DEFAULT_EMP_PERMS
+        if "is_marketing_exec" not in existing:
+            upd["is_marketing_exec"] = False
+        if upd:
+            await db.users.update_one({"id": existing["id"]}, {"$set": upd})
 
 async def ensure_indexes():
     await db.users.create_index("email", unique=True)

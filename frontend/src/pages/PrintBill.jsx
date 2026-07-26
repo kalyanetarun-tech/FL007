@@ -42,7 +42,7 @@ export default function PrintBill() {
           <tbody>
             {bill.items.map((it, i) => (
               <tr key={i}>
-                <td className="py-0.5">{it.name}<div className="text-[9px] uppercase text-gray-500">{it.kind}</div></td>
+                <td className="py-0.5">{it.name}<div className="text-[9px] uppercase text-gray-500">{it.category || it.kind}{it.gst_percent ? ` · GST ${it.gst_percent}%` : ""}</div></td>
                 <td className="text-right align-top">{it.qty}</td>
                 <td className="text-right align-top">{(it.price * it.qty).toFixed(0)}</td>
               </tr>
@@ -51,8 +51,8 @@ export default function PrintBill() {
         </table>
         <div className="border-t border-dashed border-black pt-1 text-[11px] space-y-0.5">
           <div className="flex justify-between"><span>Subtotal:</span><span>{inr(bill.subtotal)}</span></div>
-          {bill.discount > 0 && <div className="flex justify-between"><span>Discount:</span><span>-{inr(bill.discount)}</span></div>}
-          {bill.gst_amount > 0 && <div className="flex justify-between"><span>GST ({bill.gst_percent}%):</span><span>{inr(bill.gst_amount)}</span></div>}
+          {bill.discount > 0 && <div className="flex justify-between"><span>Discount{bill.discount_percent ? ` (${bill.discount_percent}%)` : ""}:</span><span>-{inr(bill.discount)}</span></div>}
+          {bill.gst_amount > 0 && <div className="flex justify-between"><span>GST:</span><span>{inr(bill.gst_amount)}</span></div>}
           <div className="flex justify-between text-base font-black border-t border-dashed border-black pt-1"><span>TOTAL:</span><span>{inr(bill.total)}</span></div>
           <div className="flex justify-between"><span>Payment:</span><span>{bill.payment_method.toUpperCase()} - {bill.payment_status.toUpperCase()}</span></div>
         </div>

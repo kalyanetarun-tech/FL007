@@ -110,15 +110,17 @@ export function BillDetail() {
                 <th className="text-left py-2 text-xs uppercase tracking-widest font-bold text-muted-foreground">Item</th>
                 <th className="text-right py-2 text-xs uppercase tracking-widest font-bold text-muted-foreground">Qty</th>
                 <th className="text-right py-2 text-xs uppercase tracking-widest font-bold text-muted-foreground">Price</th>
+                <th className="text-right py-2 text-xs uppercase tracking-widest font-bold text-muted-foreground">GST</th>
                 <th className="text-right py-2 text-xs uppercase tracking-widest font-bold text-muted-foreground">Total</th>
               </tr>
             </thead>
             <tbody>
               {bill.items.map((it, i) => (
                 <tr key={i} className="border-b border-border">
-                  <td className="py-3 font-semibold">{it.name}<span className="ml-2 text-xs text-muted-foreground uppercase">{it.kind}</span></td>
+                  <td className="py-3 font-semibold">{it.name}<span className="ml-2 text-xs text-muted-foreground uppercase">{it.category || it.kind}</span></td>
                   <td className="text-right">{it.qty}</td>
                   <td className="text-right">{inr(it.price)}</td>
+                  <td className="text-right text-xs">{it.gst_percent || 0}%</td>
                   <td className="text-right font-bold">{inr(it.price * it.qty)}</td>
                 </tr>
               ))}
@@ -127,8 +129,8 @@ export function BillDetail() {
 
           <div className="ml-auto max-w-xs space-y-2">
             <Row label="Subtotal" value={inr(bill.subtotal)} />
-            {bill.discount > 0 && <Row label="Discount" value={`- ${inr(bill.discount)}`} />}
-            {bill.gst_amount > 0 && <Row label={`GST (${bill.gst_percent}%)`} value={inr(bill.gst_amount)} />}
+            {bill.discount > 0 && <Row label={`Discount${bill.discount_percent ? ` (${bill.discount_percent}%)` : ""}`} value={`- ${inr(bill.discount)}`} />}
+            {bill.gst_amount > 0 && <Row label="GST" value={inr(bill.gst_amount)} />}
             <div className="flex items-center justify-between pt-3 border-t border-border">
               <span className="text-lg font-black">Total</span>
               <span className="text-3xl font-black text-accent">{inr(bill.total)}</span>
