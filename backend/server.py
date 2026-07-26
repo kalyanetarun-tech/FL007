@@ -123,6 +123,7 @@ class GameIn(BaseModel):
 class PackageIn(BaseModel):
     name: str
     type: Literal["birthday", "party", "group", "other"] = "birthday"
+    category: Optional[str] = ""  # free-text category eg: "Kids Special", "Corporate", "Weekend"
     price: float
     offer_price: Optional[float] = None
     pax: int = 10

@@ -123,6 +123,69 @@ def test_package_create(admin_h):
     requests.delete(f"{API}/packages/{pid}", headers=admin_h)
 
 
+# ---------------- Package Category (iteration 10) ----------------
+def test_package_category_create_and_update(admin_h):
+    # Create with category
+    payload = {"name": f"TEST_Cat_{uuid.uuid4().hex[:5]}", "type": "birthday", "price": 2500, "pax": 10,
+               "inclusions": ["Cake"], "category": "Kids Special"}
+    r = requests.post(f"{API}/packages", headers=admin_h, json=payload)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    pid = body["id"]
+    assert body.get("category") == "Kids Special"
+
+    # GET verifies persistence
+    r2 = requests.get(f"{API}/packages", headers=admin_h)
+    match = [p for p in r2.json() if p["id"] == pid]
+    assert match and match[0].get("category") == "Kids Special"
+
+    # PATCH category to "Weekend"
+    upd = {**payload, "category": "Weekend"}
+    r3 = requests.patch(f"{API}/packages/{pid}", headers=admin_h, json=upd)
+    assert r3.status_code == 200
+    assert r3.json().get("category") == "Weekend"
+
+    # GET verifies update persistence
+    r4 = requests.get(f"{API}/packages", headers=admin_h)
+    match2 = [p for p in r4.json() if p["id"] == pid]
+    assert match2 and match2[0].get("category") == "Weekend"
+
+    requests.delete(f"{API}/packages/{pid}", headers=admin_h)
+
+
+def test_package_no_category_defaults_empty(admin_h):
+    # Package created WITHOUT category field should default to empty string, not crash
+    payload = {"name": f"TEST_NoCat_{uuid.uuid4().hex[:5]}", "type": "birthday", "price": 1000, "pax": 5,
+               "inclusions": []}
+    r = requests.post(f"{API}/packages", headers=admin_h, json=payload)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    pid = body["id"]
+    # category should be present as empty string (default)
+    assert body.get("category", "") == ""
+    # GET should also work fine
+    r2 = requests.get(f"{API}/packages", headers=admin_h)
+    assert r2.status_code == 200
+    requests.delete(f"{API}/packages/{pid}", headers=admin_h)
+
+
+def test_public_book_includes_packages_with_category(admin_h):
+    # Create an active package with a category
+    payload = {"name": f"TEST_Pub_{uuid.uuid4().hex[:5]}", "type": "birthday", "price": 3000, "pax": 8,
+               "inclusions": ["Cake"], "category": "Corporate", "active": True}
+    r = requests.post(f"{API}/packages", headers=admin_h, json=payload)
+    assert r.status_code == 200, r.text
+    pid = r.json()["id"]
+    # public prebook catalog endpoint
+    rb = requests.get(f"{API}/prebook/catalog")
+    assert rb.status_code == 200
+    pkgs = rb.json().get("packages", [])
+    match = [p for p in pkgs if p.get("id") == pid]
+    assert match, "package not in prebook/catalog"
+    assert match[0].get("category") == "Corporate"
+    requests.delete(f"{API}/packages/{pid}", headers=admin_h)
+
+
 # ---------------- Inquiries ----------------
 def test_inquiry_create_and_status(admin_h, employee_setup):
     r = requests.post(f"{API}/inquiries", headers=employee_setup["headers"], json={

@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, PartyPopper } from "lucide-react";
 
-const empty = { name: "", type: "birthday", price: 0, offer_price: null, pax: 10, inclusions: "", description: "", active: true };
+const empty = { name: "", type: "birthday", category: "", price: 0, offer_price: null, pax: 10, inclusions: "", description: "", active: true };
 
 export default function Packages() {
   const { isAdmin } = useAuth();
@@ -21,9 +21,14 @@ export default function Packages() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editing, setEditing] = useState(null);
+  const [filter, setFilter] = useState("all");
 
   const load = () => api.get("/packages").then((r) => setList(r.data)).catch(() => {});
   useEffect(() => { load(); }, []);
+
+  // Collect unique categories from the list
+  const categories = Array.from(new Set(list.map((p) => (p.category || "").trim()).filter(Boolean))).sort();
+  const filtered = filter === "all" ? list : list.filter((p) => (p.category || "").trim() === filter);
 
   const save = async () => {
     if (!form.name || !form.price) return toast.error("Name & price required");
@@ -49,44 +54,55 @@ export default function Packages() {
       {list.length === 0 ? (
         <EmptyState title="No packages yet" description={isAdmin ? "Birthday, group ya party packages banayen." : "Admin will add packages."} />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 stagger">
-          {list.map((p) => (
-            <Card key={p.id} className="p-6 rounded-2xl hover:shadow-md transition-shadow relative overflow-hidden" data-testid={`pkg-card-${p.id}`}>
-              <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-primary/20" />
-              <div className="relative">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-11 h-11 rounded-xl bg-accent text-accent-foreground flex items-center justify-center"><PartyPopper className="h-5 w-5" /></div>
-                  <div>
-                    <div className="font-black text-xl">{p.name}</div>
-                    <div className="text-xs uppercase tracking-widest font-bold text-secondary">{p.type} · {p.pax} pax</div>
-                  </div>
-                </div>
-                {p.description && <p className="text-sm text-muted-foreground mb-3">{p.description}</p>}
-                {p.inclusions?.length > 0 && (
-                  <ul className="text-sm space-y-1 mb-4">
-                    {p.inclusions.map((inc, i) => <li key={i} className="flex gap-2"><span className="text-accent">•</span>{inc}</li>)}
-                  </ul>
-                )}
-                <div className="flex items-end justify-between">
-                  <div>
-                    {p.offer_price && p.offer_price < p.price ? (
-                      <div>
-                        <span className="text-3xl font-black text-accent">{inr(p.offer_price)}</span>
-                        <span className="ml-2 text-sm line-through text-muted-foreground">{inr(p.price)}</span>
-                      </div>
-                    ) : <span className="text-3xl font-black">{inr(p.price)}</span>}
-                  </div>
-                  {isAdmin && (
-                    <div className="flex gap-1">
-                      <Button data-testid={`edit-pkg-${p.id}`} size="icon" variant="ghost" onClick={() => edit(p)}><Pencil className="h-4 w-4" /></Button>
-                      <Button data-testid={`del-pkg-${p.id}`} size="icon" variant="ghost" onClick={() => remove(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+        <>
+          {categories.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-6">
+              <button data-testid="pkg-filter-all" onClick={() => setFilter("all")} className={`px-4 py-2 rounded-full text-sm font-bold uppercase tracking-wider transition-colors ${filter === "all" ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary/20"}`}>All ({list.length})</button>
+              {categories.map((c) => (
+                <button key={c} data-testid={`pkg-filter-${c}`} onClick={() => setFilter(c)} className={`px-4 py-2 rounded-full text-sm font-bold uppercase tracking-wider transition-colors ${filter === c ? "bg-secondary text-secondary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary/20"}`}>{c} ({list.filter((p) => p.category === c).length})</button>
+              ))}
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 stagger">
+            {filtered.map((p) => (
+              <Card key={p.id} className="p-6 rounded-2xl hover:shadow-md transition-shadow relative overflow-hidden" data-testid={`pkg-card-${p.id}`}>
+                <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-primary/20" />
+                <div className="relative">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-xl bg-accent text-accent-foreground flex items-center justify-center"><PartyPopper className="h-5 w-5" /></div>
+                    <div className="flex-1">
+                      <div className="font-black text-xl">{p.name}</div>
+                      <div className="text-xs uppercase tracking-widest font-bold text-secondary">{p.type} · {p.pax} pax</div>
                     </div>
+                    {p.category && <span className="px-2.5 py-1 rounded-full bg-secondary/15 text-secondary text-[10px] font-bold uppercase tracking-widest">{p.category}</span>}
+                  </div>
+                  {p.description && <p className="text-sm text-muted-foreground mb-3">{p.description}</p>}
+                  {p.inclusions?.length > 0 && (
+                    <ul className="text-sm space-y-1 mb-4">
+                      {p.inclusions.map((inc, i) => <li key={i} className="flex gap-2"><span className="text-accent">•</span>{inc}</li>)}
+                    </ul>
                   )}
+                  <div className="flex items-end justify-between">
+                    <div>
+                      {p.offer_price && p.offer_price < p.price ? (
+                        <div>
+                          <span className="text-3xl font-black text-accent">{inr(p.offer_price)}</span>
+                          <span className="ml-2 text-sm line-through text-muted-foreground">{inr(p.price)}</span>
+                        </div>
+                      ) : <span className="text-3xl font-black">{inr(p.price)}</span>}
+                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-1">
+                        <Button data-testid={`edit-pkg-${p.id}`} size="icon" variant="ghost" onClick={() => edit(p)}><Pencil className="h-4 w-4" /></Button>
+                        <Button data-testid={`del-pkg-${p.id}`} size="icon" variant="ghost" onClick={() => remove(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
-        </div>
+              </Card>
+            ))}
+          </div>
+        </>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -108,6 +124,14 @@ export default function Packages() {
                 </Select>
               </div>
               <div><Label>Pax</Label><Input type="number" data-testid="pkg-pax" value={form.pax} onChange={(e) => setForm({ ...form, pax: e.target.value })} /></div>
+            </div>
+            <div>
+              <Label>Category (custom)</Label>
+              <Input data-testid="pkg-category" list="pkg-cat-suggest" value={form.category || ""} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="e.g. Kids Special, Corporate, Weekend Combo" />
+              <datalist id="pkg-cat-suggest">
+                {categories.map((c) => <option key={c} value={c} />)}
+              </datalist>
+              <div className="text-xs text-muted-foreground mt-1">Same category use karke pakages group ho jayenge. Purani categories dropdown me suggest hongi.</div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Full Price* ₹</Label><Input type="number" data-testid="pkg-price" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /></div>

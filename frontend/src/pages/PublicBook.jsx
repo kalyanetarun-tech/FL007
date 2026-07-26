@@ -70,26 +70,43 @@ export function PublicBook() {
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <div className="lg:col-span-3">
-            <Card className="p-5 rounded-2xl mb-4">
-              <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">Available Packages</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {catalog.packages.map((p) => (
-                  <button key={p.id} data-testid={`pub-pkg-${p.id}`} onClick={() => add(p, "package")} className="text-left p-4 rounded-xl border border-border hover:border-accent bg-white transition-colors">
-                    <div className="flex items-center gap-2 mb-1"><PartyPopper className="h-4 w-4 text-accent" /><div className="font-bold">{p.name}</div></div>
-                    <div className="text-xs uppercase text-muted-foreground tracking-widest font-bold">{p.type} · {p.pax} pax</div>
-                    {p.description && <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</div>}
-                    {p.inclusions?.length > 0 && (
-                      <ul className="text-xs text-muted-foreground mt-2 space-y-0.5">
-                        {p.inclusions.slice(0, 3).map((inc, i) => <li key={i} className="flex gap-1"><span className="text-accent">•</span>{inc}</li>)}
-                        {p.inclusions.length > 3 && <li className="text-[10px]">+ {p.inclusions.length - 3} more</li>}
-                      </ul>
-                    )}
-                    <div className="text-lg font-black text-accent mt-2">{inr(priceOf(p))}</div>
-                  </button>
-                ))}
-                {catalog.packages.length === 0 && <div className="col-span-full text-center text-sm text-muted-foreground py-10">Packages abhi available nahi hain. Kripya park pe call karke booking karo.</div>}
-              </div>
-            </Card>
+            {(() => {
+              const groups = {};
+              catalog.packages.forEach((p) => {
+                const key = (p.category || "").trim() || "Others";
+                (groups[key] = groups[key] || []).push(p);
+              });
+              const groupKeys = Object.keys(groups).sort((a, b) => (a === "Others" ? 1 : b === "Others" ? -1 : a.localeCompare(b)));
+              if (catalog.packages.length === 0) {
+                return (
+                  <Card className="p-5 rounded-2xl mb-4">
+                    <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">Available Packages</div>
+                    <div className="text-center text-sm text-muted-foreground py-10">Packages abhi available nahi hain. Kripya park pe call karke booking karo.</div>
+                  </Card>
+                );
+              }
+              return groupKeys.map((cat) => (
+                <Card key={cat} className="p-5 rounded-2xl mb-4">
+                  <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">{cat}</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {groups[cat].map((p) => (
+                      <button key={p.id} data-testid={`pub-pkg-${p.id}`} onClick={() => add(p, "package")} className="text-left p-4 rounded-xl border border-border hover:border-accent bg-white transition-colors">
+                        <div className="flex items-center gap-2 mb-1"><PartyPopper className="h-4 w-4 text-accent" /><div className="font-bold">{p.name}</div></div>
+                        <div className="text-xs uppercase text-muted-foreground tracking-widest font-bold">{p.type} · {p.pax} pax</div>
+                        {p.description && <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</div>}
+                        {p.inclusions?.length > 0 && (
+                          <ul className="text-xs text-muted-foreground mt-2 space-y-0.5">
+                            {p.inclusions.slice(0, 3).map((inc, i) => <li key={i} className="flex gap-1"><span className="text-accent">•</span>{inc}</li>)}
+                            {p.inclusions.length > 3 && <li className="text-[10px]">+ {p.inclusions.length - 3} more</li>}
+                          </ul>
+                        )}
+                        <div className="text-lg font-black text-accent mt-2">{inr(priceOf(p))}</div>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+              ));
+            })()}
 
             <Card className="p-5 rounded-2xl">
               <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">Aapki details</div>
