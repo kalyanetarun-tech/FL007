@@ -756,6 +756,34 @@ async def _get_settings():
     s.pop("_id", None)
     return s
 
+async def _expand_shortlink(url: str) -> str:
+    """Follow HTTP redirects for shortlinks and strip tracking params so QR encodes clean URL."""
+    if not url or not url.startswith(("http://", "https://")):
+        return url
+    try:
+        import httpx
+        from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+        async with httpx.AsyncClient(follow_redirects=True, timeout=6.0, headers={"User-Agent": "Mozilla/5.0"}) as c:
+            r = await c.get(url)
+            final = str(r.url)
+            if not final or final == url:
+                return url
+            # Strip tracking / referral params from the expanded URL
+            parsed = urlparse(final)
+            keep_params = []
+            drop_prefixes = ("utm_", "g_st", "g_ep", "coh", "entry", "skid", "utm")
+            drop_keys = {"utm_source", "utm_medium", "utm_campaign", "g_st", "g_ep", "coh", "entry", "skid", "authuser", "hl"}
+            for k, v in parse_qsl(parsed.query, keep_blank_values=False):
+                if k.lower() in drop_keys or any(k.lower().startswith(p) for p in drop_prefixes):
+                    continue
+                keep_params.append((k, v))
+            cleaned = urlunparse(parsed._replace(query=urlencode(keep_params)))
+            logger.info(f"Expanded {url} -> {cleaned}")
+            return cleaned
+    except Exception as e:
+        logger.warning(f"Shortlink expand failed for {url}: {e}")
+    return url
+
 @api.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
     return await _get_settings()
@@ -763,6 +791,11 @@ async def get_settings(user: dict = Depends(get_current_user)):
 @api.patch("/settings")
 async def update_settings(data: SettingsIn, _: dict = Depends(require_admin)):
     update = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
+    # Auto-expand Google review shortlink so QR + click always work
+    if "google_review_url" in update and update["google_review_url"]:
+        expanded = await _expand_shortlink(update["google_review_url"])
+        update["google_review_url_original"] = update["google_review_url"]
+        update["google_review_url"] = expanded
     if update:
         await db.settings.update_one({"id": "global"}, {"$set": update}, upsert=True)
     return await _get_settings()

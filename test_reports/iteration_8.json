@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 8 - Google review shortlink expansion bug fix. All 11 backend tests pass (6 fix-specific + 5 regression). Frontend E2E validated: admin login → Settings → paste maps.app.goo.gl link → Save → URL expanded and persisted → Dashboard shows QR + 'Open on Google' link with the clean expanded google.com/maps/place/FUNLAND... URL. Shortlink expansion works end-to-end (backend container HAS internet egress), and the tracking params (g_st, utm_*, g_ep, entry, skid, hl, authuser, coh) are correctly stripped.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["Recharts console warning: width(-1)/height(-1) — chart container occasionally receives zero-dimension parent on initial render. Cosmetic only, chart renders fine after layout."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_google_review_expansion.py",
+    "/app/test_reports/pytest/pytest_iter8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py _expand_shortlink() drop_prefixes tuple contains both 'utm_' and 'utm' — 'utm' as a prefix is redundant and would also drop any legitimate param that happens to start with 'utm' (unlikely but noisy). Minor.",
+    "PATCH /api/settings does not validate that google_review_url starts with http(s) before storing google_review_url_original — an invalid string like 'not-a-url' still creates a google_review_url_original field. Not a crash, but leaves noisy data. Consider validating scheme in SettingsIn.",
+    "server.py is 1171 lines — consider splitting into routers (auth, settings, bills, prebookings, staff, attendance, marketing) for maintainability. Not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_google_review_expansion.py (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (Settings save → Dashboard open-on-google flow verified)"},
+  "test_credentials": "admin@funland.in / Funland@123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Test restores original google_review_url via autouse fixture teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend expansion helper (_expand_shortlink at server.py:759) uses httpx.AsyncClient(follow_redirects=True, timeout=6s). Verified working: 'https://maps.app.goo.gl/7Pv1Eps9KVwoN2d5A?g_st=aw' → 'https://www.google.com/maps/place/FUNLAND+(GO+AA+Malwa+)+Best+Adventure+park+In+Indore,...+453001/data=!4m2!3m1!1s0x3962ff4ff764cf0f:0x1b77d51dad40c86c!18m1!1e1' — no tracking params, place path present. Graceful fallback (returns original url on any exception) already implemented. Test file: /app/backend/tests/test_google_review_expansion.py covers response structure, tracking-param strip, HTTP-200 resolution, non-shortlink passthrough, invalid url no-crash, empty string no-expansion, PATCH-without-field no-expansion, plus regression on dashboard/bills/prebookings/users/attendance-me.",
+  "rca of the issue": "RCA: maps.app.goo.gl is a Firebase Dynamic Link. When a browser (esp. on desktop or when app-link deferred) follows it, it lands on an intermediate google.com page with tracking params (g_st, g_ep) that sometimes fails to resolve the place card cleanly. FIX: server-side pre-resolve the shortlink into the canonical https://www.google.com/maps/place/... URL via httpx AsyncClient with follow_redirects=True, strip tracking params, and store both the original (in google_review_url_original) and the clean expanded form (in google_review_url) so QR codes and 'Open on Google' buttons always route to a stable, immediately-openable Google Maps place URL. Mitigation: verified 100% via curl + pytest + Playwright E2E."
+}
