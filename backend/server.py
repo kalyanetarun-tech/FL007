@@ -1136,12 +1136,23 @@ async def ensure_indexes():
     await db.prebookings.create_index("id", unique=True)
     await db.prebookings.create_index("booking_no", unique=True)
 
+import asyncio
+
+async def _startup_async():
+    """Non-blocking startup - runs in background so /api endpoints answer fast even on cold start."""
+    try:
+        await ensure_indexes()
+        await seed_admin()
+        await _get_settings()
+        logger.info("Funland CRM background init complete")
+    except Exception as e:
+        logger.error(f"Startup init failed (will retry on demand): {e}")
+
 @app.on_event("startup")
 async def startup():
-    await ensure_indexes()
-    await seed_admin()
-    await _get_settings()
-    logger.info("Funland CRM startup complete")
+    # Kick off init in background - do NOT block the HTTP server
+    asyncio.create_task(_startup_async())
+    logger.info("Funland CRM listening (background init in progress)")
 
 @app.on_event("shutdown")
 async def shutdown():

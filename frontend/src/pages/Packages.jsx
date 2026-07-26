@@ -64,49 +64,61 @@ export default function Packages() {
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 stagger">
-            {filtered.map((p) => (
-              <Card key={p.id} className="p-6 rounded-2xl hover:shadow-md transition-shadow relative overflow-hidden" data-testid={`pkg-card-${p.id}`}>
-                <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-primary/20" />
-                <div className="relative">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-11 h-11 rounded-xl bg-accent text-accent-foreground flex items-center justify-center"><PartyPopper className="h-5 w-5" /></div>
-                    <div className="flex-1">
-                      <div className="font-black text-xl">{p.name}</div>
-                      <div className="text-xs uppercase tracking-widest font-bold text-secondary">{p.type} · {p.pax} pax</div>
-                    </div>
-                    {p.category && <span className="px-2.5 py-1 rounded-full bg-secondary/15 text-secondary text-[10px] font-bold uppercase tracking-widest">{p.category}</span>}
-                  </div>
-                  {p.description && <p className="text-sm text-muted-foreground mb-3">{p.description}</p>}
-                  {p.inclusions?.length > 0 && (
-                    <ul className="text-sm space-y-1 mb-4">
-                      {p.inclusions.map((inc, i) => <li key={i} className="flex gap-2"><span className="text-accent">•</span>{inc}</li>)}
-                    </ul>
-                  )}
-                  <div className="flex items-end justify-between">
-                    <div>
-                      {p.offer_price && p.offer_price < p.price ? (
+            {filtered.map((p) => {
+              const themes = {
+                birthday: { bg: "from-pink-100 via-rose-100 to-red-100", accent: "text-rose-600", pill: "bg-rose-500 text-white", icon: "🎂" },
+                party: { bg: "from-yellow-100 via-amber-100 to-orange-100", accent: "text-orange-600", pill: "bg-orange-500 text-white", icon: "🎉" },
+                group: { bg: "from-cyan-100 via-sky-100 to-blue-100", accent: "text-blue-600", pill: "bg-blue-500 text-white", icon: "👥" },
+                other: { bg: "from-emerald-100 via-green-100 to-teal-100", accent: "text-emerald-600", pill: "bg-emerald-500 text-white", icon: "✨" },
+              };
+              const t = themes[p.type] || themes.other;
+              return (
+                <Card key={p.id} className={`p-6 rounded-2xl hover:shadow-lg transition-all relative overflow-hidden bg-gradient-to-br ${t.bg} border-0`} data-testid={`pkg-card-${p.id}`}>
+                  <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-white/30" />
+                  <div className="absolute -left-6 -bottom-6 w-28 h-28 rounded-full bg-white/20" />
+                  <div className="relative">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-white/70 backdrop-blur flex items-center justify-center text-2xl shadow-sm">{t.icon}</div>
                         <div>
-                          <span className="text-3xl font-black text-accent">{inr(p.offer_price)}</span>
-                          <span className="ml-2 text-sm line-through text-muted-foreground">{inr(p.price)}</span>
+                          <div className="font-black text-2xl leading-tight" style={{ fontFamily: "Fraunces, serif" }}>{p.name}</div>
+                          <div className="text-[10px] uppercase tracking-[0.2em] font-black text-foreground/70">{p.type} · {p.pax} pax</div>
                         </div>
-                      ) : <span className="text-3xl font-black">{inr(p.price)}</span>}
-                    </div>
-                    {isAdmin && (
-                      <div className="flex gap-1">
-                        <Button data-testid={`edit-pkg-${p.id}`} size="icon" variant="ghost" onClick={() => edit(p)}><Pencil className="h-4 w-4" /></Button>
-                        <Button data-testid={`del-pkg-${p.id}`} size="icon" variant="ghost" onClick={() => remove(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                       </div>
+                      {p.category && <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${t.pill}`}>{p.category}</span>}
+                    </div>
+                    {p.description && <p className="text-sm text-foreground/80 mb-3">{p.description}</p>}
+                    {p.inclusions?.length > 0 && (
+                      <ul className="text-sm space-y-1 mb-4 bg-white/40 rounded-xl p-3 backdrop-blur">
+                        {p.inclusions.map((inc, i) => <li key={i} className="flex gap-2"><span className={t.accent}>✓</span>{inc}</li>)}
+                      </ul>
                     )}
+                    <div className="flex items-end justify-between">
+                      <div>
+                        {p.offer_price && p.offer_price < p.price ? (
+                          <div>
+                            <span className={`text-4xl font-black ${t.accent}`}>{inr(p.offer_price)}</span>
+                            <span className="ml-2 text-sm line-through text-foreground/50">{inr(p.price)}</span>
+                          </div>
+                        ) : <span className={`text-4xl font-black ${t.accent}`}>{inr(p.price)}</span>}
+                      </div>
+                      {isAdmin && (
+                        <div className="flex gap-1">
+                          <Button data-testid={`edit-pkg-${p.id}`} size="icon" variant="ghost" className="hover:bg-white/60" onClick={() => edit(p)}><Pencil className="h-4 w-4" /></Button>
+                          <Button data-testid={`del-pkg-${p.id}`} size="icon" variant="ghost" className="hover:bg-white/60" onClick={() => remove(p.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         </>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="rounded-2xl max-w-lg">
+        <DialogContent className="rounded-2xl max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-2xl font-black">{editing ? "Edit" : "New"} Package</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Name*</Label><Input data-testid="pkg-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>

@@ -37,9 +37,34 @@ export default function Games() {
   };
 
   const remove = async (id) => {
-    if (!window.confirm("Delete this game?")) return;
+    if (!window.confirm("Delete this activity?")) return;
     try { await api.delete(`/games/${id}`); toast.success("Deleted"); load(); }
     catch (e) { toast.error(fmtErr(e)); }
+  };
+
+  const FUNLAND_DEFAULTS = [
+    { name: "Bungy Jumping", category: "Adventure", price: 200, description: "" },
+    { name: "Bull Ride", category: "Adventure", price: 150 },
+    { name: "Segway", category: "Ride", price: 100 },
+    { name: "Shooting", category: "Games", price: 200 },
+    { name: "ATV Ride", category: "Adventure", price: 220 },
+    { name: "Buggy Ride", category: "Ride", price: 150 },
+    { name: "Water Roller", category: "Water", price: 150 },
+    { name: "Horse Riding", category: "Ride", price: 100 },
+    { name: "Paddle Boat", category: "Water", price: 100 },
+    { name: "Motor Boating", category: "Water", price: 150 },
+    { name: "Sky Cycle", category: "Adventure", price: 200 },
+    { name: "Water Zorbing", category: "Water", price: 150 },
+  ];
+  const seedFunland = async () => {
+    if (!window.confirm(`${FUNLAND_DEFAULTS.length} default Funland activities add karne hain?`)) return;
+    let ok = 0, fail = 0;
+    for (const g of FUNLAND_DEFAULTS) {
+      try { await api.post("/games", { ...g, active: true, offer_price: null }); ok++; }
+      catch { fail++; }
+    }
+    toast.success(`Added ${ok} activities${fail ? `, ${fail} failed` : ""}`);
+    load();
   };
 
   const edit = (g) => { setEditing(g.id); setForm({ ...g, offer_price: g.offer_price ?? "", duration_min: g.duration_min ?? "" }); setOpen(true); };
@@ -47,54 +72,71 @@ export default function Games() {
   return (
     <div>
       <PageHead
-        title="Games & Rides"
-        subtitle={isAdmin ? "Har game ka price aur offer manage karo" : "Games list (view only)"}
-        action={isAdmin && <Button data-testid="new-game-btn" onClick={() => { setEditing(null); setForm(empty); setOpen(true); }} className="rounded-full bg-accent hover:bg-accent/90 h-11 px-6 font-bold"><Plus className="h-4 w-4 mr-1" /> Add Game</Button>}
+        title="Games / Activities"
+        subtitle={isAdmin ? "Har game/activity ka price aur offer manage karo" : "Games / activities list (view only)"}
+        action={isAdmin && (
+          <div className="flex gap-2">
+            {list.length === 0 && <Button data-testid="seed-games-btn" onClick={seedFunland} className="rounded-full bg-secondary hover:bg-secondary/90 h-11 px-5 font-bold text-secondary-foreground">Load Funland defaults</Button>}
+            <Button data-testid="new-game-btn" onClick={() => { setEditing(null); setForm(empty); setOpen(true); }} className="rounded-full bg-accent hover:bg-accent/90 h-11 px-6 font-bold"><Plus className="h-4 w-4 mr-1" /> Add</Button>
+          </div>
+        )}
       />
 
       {list.length === 0 ? (
         <EmptyState title="No games added yet" description={isAdmin ? "Trampoline, VR, Bowling — jo bhi rides ho add karo." : "Admin needs to add games."} action={isAdmin && <Button data-testid="empty-add-game" onClick={() => setOpen(true)} className="rounded-full">Add first game</Button>} />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
-          {list.map((g) => (
-            <Card key={g.id} className="p-5 rounded-2xl hover:shadow-md transition-shadow" data-testid={`game-card-${g.id}`}>
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-secondary/20 text-secondary flex items-center justify-center"><Gamepad2 className="h-5 w-5" /></div>
-                  <div>
-                    <div className="font-black text-lg leading-tight">{g.name}</div>
-                    <div className="text-xs uppercase tracking-widest text-muted-foreground font-bold">{g.category}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
+          {list.map((g) => {
+            const themes = {
+              "Adventure": { bg: "from-orange-100 to-red-100", accent: "text-red-600", pill: "bg-red-500 text-white" },
+              "Water": { bg: "from-cyan-100 to-blue-100", accent: "text-cyan-700", pill: "bg-cyan-500 text-white" },
+              "Ride": { bg: "from-amber-100 to-yellow-100", accent: "text-amber-700", pill: "bg-amber-500 text-white" },
+              "Games": { bg: "from-purple-100 to-fuchsia-100", accent: "text-fuchsia-700", pill: "bg-fuchsia-500 text-white" },
+            };
+            const t = themes[g.category] || { bg: "from-emerald-100 to-teal-100", accent: "text-emerald-700", pill: "bg-emerald-500 text-white" };
+            return (
+              <Card key={g.id} className={`p-5 rounded-2xl hover:shadow-lg transition-all relative overflow-hidden bg-gradient-to-br ${t.bg} border-0`} data-testid={`game-card-${g.id}`}>
+                <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/40" />
+                <div className="relative">
+                  <div className="flex items-start justify-between mb-4">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${t.pill}`}>{g.category}</span>
+                    {!g.active && <Badge variant="outline" className="rounded-full bg-white/70">Inactive</Badge>}
                   </div>
-                </div>
-                {!g.active && <Badge variant="outline" className="rounded-full">Inactive</Badge>}
-              </div>
-              {g.description && <div className="text-sm text-muted-foreground mb-3">{g.description}</div>}
-              <div className="flex items-end justify-between">
-                <div>
-                  {g.offer_price && g.offer_price < g.price ? (
-                    <div>
-                      <span className="text-2xl font-black text-accent">{inr(g.offer_price)}</span>
-                      <span className="ml-2 text-sm line-through text-muted-foreground">{inr(g.price)}</span>
+                  <div className="mb-3">
+                    <div className="flex items-center gap-2">
+                      <Gamepad2 className={`h-5 w-5 ${t.accent}`} />
+                      <div className="font-black text-xl leading-tight">{g.name}</div>
                     </div>
-                  ) : (
-                    <span className="text-2xl font-black">{inr(g.price)}</span>
-                  )}
-                  {g.duration_min && <div className="text-xs text-muted-foreground">{g.duration_min} min</div>}
-                </div>
-                {isAdmin && (
-                  <div className="flex gap-1">
-                    <Button data-testid={`edit-game-${g.id}`} size="icon" variant="ghost" onClick={() => edit(g)}><Pencil className="h-4 w-4" /></Button>
-                    <Button data-testid={`del-game-${g.id}`} size="icon" variant="ghost" onClick={() => remove(g.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                    {g.description && <div className="text-xs text-foreground/70 mt-1">{g.description}</div>}
                   </div>
-                )}
-              </div>
-            </Card>
-          ))}
+                  <div className="flex items-end justify-between">
+                    <div>
+                      {g.offer_price && g.offer_price < g.price ? (
+                        <div>
+                          <span className={`text-3xl font-black ${t.accent}`}>{inr(g.offer_price)}</span>
+                          <span className="ml-2 text-xs line-through text-foreground/50">{inr(g.price)}</span>
+                        </div>
+                      ) : (
+                        <span className={`text-3xl font-black ${t.accent}`}>{inr(g.price)}</span>
+                      )}
+                      {g.duration_min && <div className="text-[10px] uppercase tracking-widest font-bold text-foreground/60 mt-1">{g.duration_min} min</div>}
+                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-1">
+                        <Button data-testid={`edit-game-${g.id}`} size="icon" variant="ghost" className="hover:bg-white/60" onClick={() => edit(g)}><Pencil className="h-4 w-4" /></Button>
+                        <Button data-testid={`del-game-${g.id}`} size="icon" variant="ghost" className="hover:bg-white/60" onClick={() => remove(g.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="rounded-2xl">
+        <DialogContent className="rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-2xl font-black">{editing ? "Edit" : "New"} Game</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Name*</Label><Input data-testid="game-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>

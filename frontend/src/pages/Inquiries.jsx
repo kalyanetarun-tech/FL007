@@ -143,7 +143,7 @@ export default function Inquiries() {
 
       {/* New Inquiry */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="rounded-2xl">
+        <DialogContent className="rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-2xl font-black">New Inquiry</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Name*</Label><Input data-testid="inq-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>

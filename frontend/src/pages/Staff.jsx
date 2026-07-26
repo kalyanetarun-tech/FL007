@@ -20,7 +20,7 @@ const ALL_PERMS = [
   { key: "visit", label: "New Bill / Visit" },
   { key: "bills", label: "Bills" },
   { key: "customers", label: "Customers" },
-  { key: "games", label: "Games" },
+  { key: "games", label: "Games / Activities" },
   { key: "packages", label: "Packages" },
   { key: "attendance", label: "Attendance" },
 ];
