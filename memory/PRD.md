@@ -83,6 +83,16 @@ Added later:
 5. When ready for social auto-sync, apply for Meta Business API access
 
 ## Changelog
+### 2026-07-27 — Indian GST compliance + Inquiries Excel import/export
+- **GST-compliant tax invoice** across bills & packages: Food 5%, Activities 18%, per-item HSN/SAC codes, CGST+SGST for intra-state, IGST for inter-state
+- Bills now store a `gst_breakup` (per-rate taxable/CGST/SGST/IGST/total), `customer_gstin`, `customer_state_code`, and auto-detect `is_interstate`
+- Games get a `gst_category` (food/activity/goods) → GST rate + default HSN auto-applied at billing
+- Packages get `food_portion` + `activity_portion` inputs — a package on a bill **auto-splits into two lines** (food@5% + activity@18%)
+- Settings has a new **GST / Tax Invoice details** card: `firm_name`, `firm_gstin`, `firm_state_code`, `firm_pan`, `firm_fssai`, `invoice_prefix`
+- Print receipt (`/bills/:id/print`) now renders a full-format tax invoice: firm GSTIN/FSSAI header, customer GSTIN + state, HSN column per line, GST breakup table
+- **Inquiries Excel**: `Import Excel` / `Export` / `Template` buttons with `/api/inquiries/export.xlsx`, `/api/inquiries/template.xlsx`, and `POST /api/inquiries/import` (multipart). Round-trip verified.
+- Tests: `/app/backend/tests/test_gst_compliance.py` (16/16 pass) + Playwright UI smoke on 5 pages + 2 file downloads
+
 ### 2026-07-26 — Dashboard "Sales Mix" upgrade
 - Removed "Popular rides" leaderboard card from Dashboard
 - Added `Packages Sold` and `Games/Activities Played` cards driven by the same date-range filter as the analytics panel
