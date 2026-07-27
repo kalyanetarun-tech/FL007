@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, PartyPopper } from "lucide-react";
 
-const empty = { name: "", type: "birthday", category: "", price: 0, offer_price: null, pax: 10, inclusions: "", description: "", active: true };
+const empty = { name: "", type: "birthday", category: "", price: 0, offer_price: null, pax: 10, inclusions: "", description: "", active: true, food_portion: 0, activity_portion: 0, hsn_food: "996331", hsn_activity: "999721" };
 
 export default function Packages() {
   const { isAdmin } = useAuth();
@@ -33,7 +33,13 @@ export default function Packages() {
   const save = async () => {
     if (!form.name || !form.price) return toast.error("Name & price required");
     const inclusions = typeof form.inclusions === "string" ? form.inclusions.split(",").map((s) => s.trim()).filter(Boolean) : form.inclusions;
-    const payload = { ...form, inclusions, price: +form.price, offer_price: form.offer_price ? +form.offer_price : null, pax: +form.pax || 1 };
+    const fp = +form.food_portion || 0;
+    const ap = +form.activity_portion || 0;
+    const price = +form.price;
+    if (fp + ap > 0 && Math.abs(fp + ap - price) > 0.5) {
+      return toast.error(`Food (₹${fp}) + Activity (₹${ap}) = ₹${fp+ap} — should equal Price ₹${price}`);
+    }
+    const payload = { ...form, inclusions, price, offer_price: form.offer_price ? +form.offer_price : null, pax: +form.pax || 1, food_portion: fp, activity_portion: ap };
     try {
       if (editing) await api.patch(`/packages/${editing}`, payload);
       else await api.post("/packages", payload);
@@ -101,6 +107,11 @@ export default function Packages() {
                             <span className="ml-2 text-sm line-through text-foreground/50">{inr(p.price)}</span>
                           </div>
                         ) : <span className={`text-4xl font-black ${t.accent}`}>{inr(p.price)}</span>}
+                        {(p.food_portion > 0 || p.activity_portion > 0) && (
+                          <div className="text-[10px] uppercase tracking-widest font-black text-foreground/60 mt-1">
+                            GST: Food ₹{p.food_portion || 0} @5% · Activity ₹{p.activity_portion || 0} @18%
+                          </div>
+                        )}
                       </div>
                       {isAdmin && (
                         <div className="flex gap-1">
@@ -150,6 +161,30 @@ export default function Packages() {
               <div><Label>Offer Price ₹</Label><Input type="number" data-testid="pkg-offer" value={form.offer_price || ""} onChange={(e) => setForm({ ...form, offer_price: e.target.value })} /></div>
             </div>
             <div><Label>Inclusions (comma separated)</Label><Textarea data-testid="pkg-incl" value={form.inclusions} onChange={(e) => setForm({ ...form, inclusions: e.target.value })} placeholder="Cake, Decoration, Unlimited games..." /></div>
+            <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs uppercase tracking-widest font-black">GST split (Indian compliance)</Label>
+                <span className="text-[10px] font-bold text-muted-foreground">Food 5% · Activity 18%</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Food portion ₹ (5% GST)</Label>
+                  <Input type="number" data-testid="pkg-food-portion" value={form.food_portion || ""} onChange={(e) => setForm({ ...form, food_portion: e.target.value })} placeholder="e.g. 800" />
+                </div>
+                <div>
+                  <Label>Activity portion ₹ (18% GST)</Label>
+                  <Input type="number" data-testid="pkg-act-portion" value={form.activity_portion || ""} onChange={(e) => setForm({ ...form, activity_portion: e.target.value })} placeholder="e.g. 1200" />
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Food + Activity total = Package price. Blank rakhoge to full price 18% activity treat hoga.
+                {(+form.food_portion || 0) + (+form.activity_portion || 0) > 0 && (
+                  <span className={`ml-2 font-bold ${Math.abs((+form.food_portion || 0) + (+form.activity_portion || 0) - (+form.price || 0)) < 0.5 ? "text-emerald-600" : "text-destructive"}`}>
+                    Sum: ₹{(+form.food_portion || 0) + (+form.activity_portion || 0)} / ₹{+form.price || 0}
+                  </span>
+                )}
+              </div>
+            </div>
             <div><Label>Description</Label><Textarea data-testid="pkg-desc" value={form.description || ""} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
             <div className="flex items-center justify-between p-3 bg-muted rounded-xl">
               <Label htmlFor="pkg-active-switch">Active</Label>

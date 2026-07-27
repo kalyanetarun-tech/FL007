@@ -25,7 +25,7 @@ export default function NewVisit() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("games");
   const [cart, setCart] = useState([]);
-  const [customer, setCustomer] = useState({ name: "", phone: "", email: "" });
+  const [customer, setCustomer] = useState({ name: "", phone: "", email: "", gstin: "", state_code: "" });
   const [discountMode, setDiscountMode] = useState("percent"); // "percent" | "flat"
   const [discountValue, setDiscountValue] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("cash");
@@ -45,8 +45,18 @@ export default function NewVisit() {
     setCart((c) => {
       const idx = c.findIndex((x) => x.ref_id === item.id);
       if (idx >= 0) { const nc = [...c]; nc[idx] = { ...nc[idx], qty: nc[idx].qty + 1 }; return nc; }
-      const cat = CATEGORIES[0];
-      return [...c, { kind, ref_id: item.id, name: item.name, price: priceOf(item), qty: 1, category: cat.v, gst_percent: cat.defaultGst }];
+      // Auto-derive category & GST from item metadata
+      let catV = "activity", gst = 18;
+      if (kind === "game") {
+        const gc = (item.gst_category || "activity").toLowerCase();
+        if (gc === "food") { catV = "food"; gst = 5; }
+        else if (gc === "goods") { catV = "merchandise"; gst = 12; }
+        else { catV = "activity"; gst = 18; }
+      } else if (kind === "package") {
+        // Package will be exploded on backend into food + activity lines with 5% + 18%
+        catV = "activity"; gst = 18;
+      }
+      return [...c, { kind, ref_id: item.id, name: item.name, price: priceOf(item), qty: 1, category: catV, gst_percent: gst, is_package_split: kind === "package" && (item.food_portion > 0 && item.activity_portion > 0) }];
     });
   };
   const setQty = (idx, qty) => setCart((c) => c.map((x, i) => i === idx ? { ...x, qty: Math.max(1, qty) } : x));
@@ -86,6 +96,7 @@ export default function NewVisit() {
     try {
       const { data } = await api.post("/bills", {
         customer_name: customer.name, customer_phone: customer.phone, customer_email: customer.email,
+        customer_gstin: customer.gstin, customer_state_code: customer.state_code,
         items: cart.map((c) => ({ kind: c.kind, ref_id: c.ref_id, name: c.name, price: c.price, qty: c.qty, gst_percent: +c.gst_percent || 0, category: c.category })),
         discount: discountMode === "flat" ? discFlat : 0,
         discount_percent: discountMode === "percent" ? discPct : 0,
@@ -113,6 +124,17 @@ export default function NewVisit() {
               <div><Label>Name*</Label><Input data-testid="cust-name" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} /></div>
               <div><Label>Phone</Label><Input data-testid="cust-phone" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} /></div>
               <div><Label>Email</Label><Input data-testid="cust-email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} /></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
+              <div className="md:col-span-2">
+                <Label className="flex items-center gap-1">Customer GSTIN <span className="text-[10px] font-normal text-muted-foreground">(optional — B2B tax invoice ke liye)</span></Label>
+                <Input data-testid="cust-gstin" value={customer.gstin} onChange={(e) => setCustomer({ ...customer, gstin: e.target.value.toUpperCase() })} placeholder="22ABCDE1234F1Z5" maxLength={15} />
+              </div>
+              <div>
+                <Label>State code</Label>
+                <Input data-testid="cust-state" value={customer.state_code} onChange={(e) => setCustomer({ ...customer, state_code: e.target.value })} placeholder="e.g. 23 (MP)" maxLength={2} />
+                <div className="text-[10px] text-muted-foreground mt-1">Blank = intra-state (CGST+SGST)</div>
+              </div>
             </div>
           </Card>
 
@@ -188,6 +210,11 @@ export default function NewVisit() {
                         <Percent className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                       </div>
                     </div>
+                    {it.kind === "package" && it.is_package_split && (
+                      <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 rounded px-2 py-1">
+                        📦 Yeh package bill par auto split hoga: Food @5% + Activity @18%
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

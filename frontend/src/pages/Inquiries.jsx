@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { copyToClipboard } from "@/lib/clipboard";
-import { Plus, Phone, Instagram, Facebook, MessageCircle, User, Copy, MessagesSquare, Send } from "lucide-react";
+import { Plus, Phone, Instagram, Facebook, MessageCircle, User, Copy, MessagesSquare, Send, Download, Upload, FileSpreadsheet } from "lucide-react";
 
 const STATUS_COLORS = {
   new: "bg-primary/20 text-accent border-primary",
@@ -76,6 +76,33 @@ export default function Inquiries() {
     } catch (e) { toast.error(fmtErr(e)); }
   };
 
+  const downloadXlsx = async (path, filename) => {
+    try {
+      const res = await api.get(path, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { toast.error(fmtErr(e)); }
+  };
+  const exportXlsx = () => downloadXlsx("/inquiries/export.xlsx", `inquiries_${new Date().toISOString().slice(0,10)}.xlsx`);
+  const downloadTemplate = () => downloadXlsx("/inquiries/template.xlsx", "inquiries_template.xlsx");
+  const importXlsx = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const { data } = await api.post("/inquiries/import", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const msg = `Imported ${data.inserted} inquiries` + (data.skipped ? `, skipped ${data.skipped}` : "") + (data.errors?.length ? ` (${data.errors.length} errors)` : "");
+      toast.success(msg);
+      if (data.errors?.length) console.warn("Import errors:", data.errors);
+      load();
+    } catch (err) { toast.error(fmtErr(err)); }
+  };
+
   const backendBase = process.env.REACT_APP_BACKEND_URL;
   const scoped = scope === "mine" ? list.filter((i) => i.assigned_to === user?.id) : list;
   const filtered = filter === "all" ? scoped : scoped.filter((i) => i.status === filter);
@@ -87,6 +114,10 @@ export default function Inquiries() {
         subtitle="Har phone, walk-in aur social lead — auto-assigned to marketing execs"
         action={
           <div className="flex flex-wrap gap-2">
+            <input id="inq-import-file" type="file" accept=".xlsx,.xls" onChange={importXlsx} className="hidden" data-testid="inq-import-input" />
+            <Button data-testid="inq-template-btn" onClick={downloadTemplate} variant="outline" className="rounded-full h-11 px-4 font-bold"><FileSpreadsheet className="h-4 w-4 mr-1" /> Template</Button>
+            <Button data-testid="inq-import-btn" onClick={() => document.getElementById("inq-import-file").click()} variant="outline" className="rounded-full h-11 px-4 font-bold"><Upload className="h-4 w-4 mr-1" /> Import Excel</Button>
+            <Button data-testid="inq-export-btn" onClick={exportXlsx} variant="outline" className="rounded-full h-11 px-4 font-bold"><Download className="h-4 w-4 mr-1" /> Export</Button>
             <Button data-testid="webhook-btn" onClick={() => setWebhookOpen(true)} variant="outline" className="rounded-full h-11 px-5 font-bold"><MessagesSquare className="h-4 w-4 mr-1" /> Channel Setup</Button>
             <Button data-testid="new-inquiry-btn" onClick={() => setOpen(true)} className="rounded-full bg-accent hover:bg-accent/90 h-11 px-6 font-bold"><Plus className="h-4 w-4 mr-1" /> New</Button>
           </div>

@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 12 — Full Indian GST compliance verification. Backend: created /app/backend/tests/test_gst_compliance.py with 16 pytest cases covering (a) Settings firm_name/firm_gstin/firm_state_code/firm_pan/firm_fssai/invoice_prefix GET+PATCH persistence, (b) Games GST category food/activity, (c) Packages food_portion/activity_portion (with & without portions defaults 0/0), (d) Bills package auto-split into two line-items (Food@5% HSN 996331 + Activity@18% HSN 999721) with correct GST breakup, (e) Intra-state 23→23 CGST+SGST vs Inter-state 23→27 IGST, (f) food-category game auto-fills 5% + HSN 996331 without frontend passing them, (g) customer_gstin stored uppercased and returned on GET, (h) Inquiries export.xlsx returns 200 with correct openxml MIME, PK zip magic, and full header row, (i) Template.xlsx has header + 2 example rows, (j) Import xlsx round-trip inserts 2 inquiries visible in GET, (k) non-xlsx upload → 400, (l) regression on /dashboard/stats and /bills list. Result: 16/16 PASSED in 3.29s. Frontend smoke via Playwright on desktop 1440x900: logged in via 'Enter Funland' button, verified every requested data-testid: set-firm-name/gstin/state/pan/fssai/inv-prefix visible on /settings and persist across reload (prefix='FL/UI/' name='TEST_UI Funland'); /games Add dialog shows game-gst-cat + game-hsn; /packages Add dialog shows pkg-food-portion + pkg-act-portion; /visit shows cust-gstin + cust-state; /inquiries toolbar shows inq-import-btn, inq-export-btn, inq-template-btn — clicking Export downloaded 'inquiries_2026-07-27.xlsx' and Template downloaded 'inquiries_template.xlsx'. All 6 features and regression checks confirmed working end-to-end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Login", "issues": ["Two console errors 'net::ERR_NAME_NOT_RESOLVED' after login — likely PWA/service-worker or install-prompt image fetch; non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gst_compliance.py",
+    "/app/test_reports/pytest/pytest_iter12.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1550+ lines — long-standing feedback: split into routers (auth/games/packages/bills/inquiries/settings). Not blocking but overdue.",
+    "_get_settings backfills firm_state_code default='23' — good, but ADMIN who leaves firm_state_code blank + customer_state_code blank correctly falls back to intra-state (is_interstate=False). Verified.",
+    "In create_bill, when package has only food_portion or only activity_portion (one is 0), the code falls through to single-line 18% activity default. This is correct per spec (both>0 required for split) but could be documented in a small comment.",
+    "Package auto-split preserves the original ref_id on both derived lines — good for later analytics/reconciliation.",
+    "customer_gstin is stripped+uppercased in create_bill but there is NO server-side GSTIN 15-char format validation. Consider a regex ^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$ if strict compliance is required (may want to allow blank for B2C).",
+    "Inquiries import assigns to a marketing exec via round-robin per row — good, matches manual create behavior."
+  ],
+  "updated_files": ["/app/backend/tests/test_gst_compliance.py"],
+  "success_rate": {"backend": "100% (16/16 new + 61/61 prior existing = 77/77)", "frontend": "100% (all 15 test IDs verified across 5 pages + 2 downloads)"},
+  "test_credentials": "admin@funland.in / Funland@123",
+  "seed_data_creation": "Created a few TEST_-prefixed inquiries (via import round-trip) and TEST_ packages/games (deleted after test). Settings.firm_name was updated to 'TEST_UI Funland' + invoice_prefix='FL/UI/' during UI persistence check — main agent may reset those if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Firm settings now persist prefix='FL/UI/' and firm_state_code='23' (Madhya Pradesh). To trigger IGST in tests use customer_state_code='27'. Bills created during tests have TEST_ customer names — safe to delete via mongo query {customer_name: /^TEST_/}. Package auto-split behavior: requires BOTH food_portion>0 AND activity_portion>0 — otherwise single 18% activity line.",
+  "rca of the issue": "N/A — all acceptance criteria (5 backend feature groups + 6 frontend UI checks + regression) verified passing."
+}

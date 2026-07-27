@@ -14,7 +14,8 @@ from typing import List, Optional, Literal
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, status, UploadFile, File
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -119,6 +120,9 @@ class GameIn(BaseModel):
     duration_min: Optional[int] = None
     description: Optional[str] = ""
     active: bool = True
+    # GST fields (Indian compliance)
+    gst_category: Literal["food", "activity", "goods"] = "activity"  # food=5%, activity=18%, goods=18%
+    hsn_code: Optional[str] = ""  # HSN/SAC — e.g. 999721 (amusement), 996331 (food)
 
 class PackageIn(BaseModel):
     name: str
@@ -130,6 +134,12 @@ class PackageIn(BaseModel):
     inclusions: List[str] = []
     description: Optional[str] = ""
     active: bool = True
+    # GST split — package price = food_portion (5%) + activity_portion (18%)
+    # If both 0, entire price is treated as activity_portion.
+    food_portion: float = 0
+    activity_portion: float = 0
+    hsn_food: Optional[str] = "996331"       # restaurant / catering
+    hsn_activity: Optional[str] = "999721"   # amusement / recreation
 
 class InquiryIn(BaseModel):
     name: str
@@ -159,11 +169,14 @@ class BillItem(BaseModel):
     qty: int = 1
     gst_percent: float = 0  # per-line GST (e.g. food 5%, activity 18%)
     category: Optional[str] = None  # optional label: "food" / "activity" / "entry"
+    hsn_code: Optional[str] = ""    # HSN/SAC — for GST invoice
 
 class BillIn(BaseModel):
     customer_name: str
     customer_phone: str = ""
     customer_email: Optional[str] = ""
+    customer_gstin: Optional[str] = ""      # 15-char GSTIN if B2B
+    customer_state_code: Optional[str] = ""  # 2-digit GST state code (e.g. "23" for MP). Blank = intra-state
     items: List[BillItem]
     discount: float = 0            # flat rupees discount
     discount_percent: float = 0    # OR percent discount (5-100)
@@ -206,6 +219,13 @@ class SettingsIn(BaseModel):
     google_review_url: Optional[str] = None
     google_reviews_shown: Optional[int] = None
     google_rating: Optional[float] = None
+    # GST / firm compliance
+    firm_name: Optional[str] = None            # legal name printed on tax invoice
+    firm_gstin: Optional[str] = None           # 15-char GSTIN
+    firm_state_code: Optional[str] = None      # 2-digit GST state code, e.g. "23" for MP
+    firm_pan: Optional[str] = None
+    firm_fssai: Optional[str] = None           # FSSAI for food service
+    invoice_prefix: Optional[str] = None       # e.g. "FL/24-25/"
 
 class CampaignIn(BaseModel):
     title: str
@@ -425,12 +445,188 @@ async def add_remark(iid: str, data: RemarkIn, user: dict = Depends(get_current_
     await db.inquiries.update_one({"id": iid}, {"$push": {"remarks": remark}})
     return await db.inquiries.find_one({"id": iid}, {"_id": 0})
 
+# --- Inquiries Excel import/export ---
+INQUIRY_XLSX_COLUMNS = [
+    "Name", "Phone", "Email", "Source", "Interest", "Notes",
+    "Follow Up Date", "Status", "Assigned To", "Created At",
+]
+
+@api.get("/inquiries/export.xlsx")
+async def export_inquiries_xlsx(user: dict = Depends(get_current_user)):
+    """Download all inquiries as an .xlsx file. Same columns are accepted by the import endpoint."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from io import BytesIO
+    rows = await db.inquiries.find({}, {"_id": 0}).sort("created_at", -1).to_list(20000)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Inquiries"
+    ws.append(INQUIRY_XLSX_COLUMNS)
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="FF7A00")
+    for c in ws[1]:
+        c.font = header_font
+        c.fill = header_fill
+    for r in rows:
+        ws.append([
+            r.get("name", ""),
+            r.get("phone", ""),
+            r.get("email", ""),
+            r.get("source", ""),
+            r.get("interest", ""),
+            r.get("notes", ""),
+            r.get("follow_up_date", "") or "",
+            r.get("status", ""),
+            r.get("assigned_to_name", "") or "",
+            (r.get("created_at", "") or "")[:19].replace("T", " "),
+        ])
+    # Auto width
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) if c.value is not None else 0) for c in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
+    buf = BytesIO()
+    wb.save(buf)
+    filename = f"inquiries_{date.today().isoformat()}.xlsx"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+@api.get("/inquiries/template.xlsx")
+async def download_inquiry_template(user: dict = Depends(get_current_user)):
+    """Blank template with headers + 2 example rows so users know the format to upload."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from io import BytesIO
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Inquiries"
+    ws.append(INQUIRY_XLSX_COLUMNS)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="FF7A00")
+    ws.append(["Rahul Sharma", "9876543210", "rahul@example.com", "whatsapp", "Birthday package", "Sat evening slot", "2026-08-10", "new", "", ""])
+    ws.append(["Priya Patel", "9998887777", "", "instagram", "Corporate group", "20 pax", "", "contacted", "", ""])
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 22
+    buf = BytesIO()
+    wb.save(buf)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="inquiries_template.xlsx"'},
+    )
+
+@api.post("/inquiries/import")
+async def import_inquiries_xlsx(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """Bulk import inquiries from an .xlsx file. Same column order as the export endpoint."""
+    from openpyxl import load_workbook
+    from io import BytesIO
+    if not (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(400, "Please upload an .xlsx file")
+    content = await file.read()
+    try:
+        wb = load_workbook(BytesIO(content), data_only=True)
+    except Exception as e:
+        raise HTTPException(400, f"Cannot read spreadsheet: {e}")
+    ws = wb.active
+    rows_iter = ws.iter_rows(values_only=True)
+    header = next(rows_iter, None)
+    if not header:
+        raise HTTPException(400, "Spreadsheet is empty")
+
+    # Map header (case-insensitive, trimmed) to expected column index
+    norm = [str(h or "").strip().lower() for h in header]
+    def col(name: str):
+        try: return norm.index(name.lower())
+        except ValueError: return -1
+    idx = {k: col(k) for k in INQUIRY_XLSX_COLUMNS}
+    if idx["Name"] < 0 or idx["Phone"] < 0:
+        raise HTTPException(400, "Required columns missing: Name, Phone")
+
+    valid_sources = {"walk-in", "phone", "instagram", "facebook", "whatsapp", "referral", "other"}
+    valid_status = {"new", "contacted", "converted", "lost"}
+
+    inserted = 0
+    skipped = 0
+    errors: List[str] = []
+    for row_no, row in enumerate(rows_iter, start=2):
+        try:
+            def v(k, default=""):
+                i = idx.get(k, -1)
+                if i < 0 or i >= len(row): return default
+                val = row[i]
+                if val is None: return default
+                return str(val).strip()
+            name = v("Name")
+            phone = v("Phone")
+            if not name and not phone:
+                skipped += 1
+                continue
+            source = v("Source", "other").lower().replace(" ", "-")
+            if source not in valid_sources:
+                source = "other"
+            status_val = v("Status", "new").lower()
+            if status_val not in valid_status:
+                status_val = "new"
+            assignee_name = v("Assigned To")
+            assignee_doc = None
+            if assignee_name:
+                assignee_doc = await db.users.find_one({"name": assignee_name}, {"_id": 0, "id": 1, "name": 1})
+            if not assignee_doc:
+                assignee_doc = await _pick_next_marketing_exec()
+            doc = {
+                "id": new_id(),
+                "name": name or "Unknown",
+                "phone": phone,
+                "email": v("Email"),
+                "source": source,
+                "interest": v("Interest"),
+                "notes": v("Notes"),
+                "follow_up_date": v("Follow Up Date") or None,
+                "status": status_val,
+                "remarks": [],
+                "assigned_to": (assignee_doc or {}).get("id"),
+                "assigned_to_name": (assignee_doc or {}).get("name"),
+                "created_by": user["id"],
+                "created_by_name": user["name"] + " (import)",
+                "created_at": now_iso(),
+            }
+            await db.inquiries.insert_one(doc)
+            inserted += 1
+        except Exception as e:
+            errors.append(f"Row {row_no}: {e}")
+    return {"ok": True, "inserted": inserted, "skipped": skipped, "errors": errors[:20]}
+
 # ---------------- Bills / Visits ----------------
-def _compute_bill_totals(items, discount, discount_percent, legacy_gst_percent):
-    """Return (subtotal, discount_amount, gst_amount, total) with per-item GST support.
-    If any item has gst_percent > 0, per-item GST is used. Otherwise legacy_gst_percent applies to (subtotal - discount)."""
+# ---------------- GST helpers (Indian compliance) ----------------
+GST_RATE_BY_CATEGORY = {"food": 5.0, "activity": 18.0, "goods": 18.0}
+HSN_BY_CATEGORY = {"food": "996331", "activity": "999721", "goods": "999721"}
+
+def _resolve_line_gst(it: dict) -> (float, str, str):
+    """Return (rate, hsn, category) for a bill line, filling from category/kind if missing."""
+    rate = float(it.get("gst_percent") or 0)
+    cat = (it.get("category") or "").lower()
+    hsn = it.get("hsn_code") or ""
+    if rate <= 0 and cat in GST_RATE_BY_CATEGORY:
+        rate = GST_RATE_BY_CATEGORY[cat]
+    if not hsn and cat in HSN_BY_CATEGORY:
+        hsn = HSN_BY_CATEGORY[cat]
+    if rate <= 0 and it.get("kind") == "game":
+        # default for games/activities
+        rate = 18.0
+        cat = cat or "activity"
+        hsn = hsn or HSN_BY_CATEGORY["activity"]
+    return rate, hsn, cat
+
+def _compute_bill_totals(items, discount, discount_percent, legacy_gst_percent, is_interstate: bool = False):
+    """Compute subtotal / discount / GST breakup / total.
+    - Each item can carry its own gst_percent (5% food, 18% activity).
+    - GST is calculated on the taxable amount (after proportional discount).
+    - Breakup groups by rate; splits into CGST/SGST (intra-state) or IGST (inter-state).
+    Returns (subtotal, discount_amount, gst_amount, total, gst_breakup)."""
     subtotal = round(sum(i["price"] * i["qty"] for i in items), 2)
-    # discount: percent takes precedence if > 0
     if discount_percent and discount_percent > 0:
         pct = min(max(discount_percent, 0), 100)
         disc_amount = round(subtotal * pct / 100.0, 2)
@@ -438,17 +634,51 @@ def _compute_bill_totals(items, discount, discount_percent, legacy_gst_percent):
         disc_amount = round(min(max(discount, 0), subtotal), 2)
     after_discount = max(subtotal - disc_amount, 0)
     ratio = (after_discount / subtotal) if subtotal > 0 else 0
+
     has_line_gst = any((i.get("gst_percent") or 0) > 0 for i in items)
+    rate_map = {}   # rate -> {taxable, tax}
+    gst_amount = 0.0
+
     if has_line_gst:
-        gst_amount = 0.0
         for it in items:
-            line_taxable = it["price"] * it["qty"] * ratio
-            gst_amount += line_taxable * ((it.get("gst_percent") or 0) / 100.0)
+            rate = float(it.get("gst_percent") or 0)
+            line_gross = it["price"] * it["qty"]
+            line_taxable = round(line_gross * ratio, 2)
+            line_tax = round(line_taxable * rate / 100.0, 2)
+            if rate > 0:
+                slot = rate_map.setdefault(rate, {"taxable": 0.0, "tax": 0.0})
+                slot["taxable"] = round(slot["taxable"] + line_taxable, 2)
+                slot["tax"] = round(slot["tax"] + line_tax, 2)
+                gst_amount += line_tax
         gst_amount = round(gst_amount, 2)
-    else:
+    elif legacy_gst_percent and legacy_gst_percent > 0:
         gst_amount = round(after_discount * (legacy_gst_percent / 100.0), 2)
+        rate_map[float(legacy_gst_percent)] = {"taxable": after_discount, "tax": gst_amount}
+
+    breakup = []
+    for rate in sorted(rate_map.keys()):
+        row = rate_map[rate]
+        if is_interstate:
+            breakup.append({
+                "rate": rate,
+                "taxable": row["taxable"],
+                "cgst": 0.0, "sgst": 0.0,
+                "igst": round(row["tax"], 2),
+                "total_tax": round(row["tax"], 2),
+            })
+        else:
+            half = round(row["tax"] / 2.0, 2)
+            breakup.append({
+                "rate": rate,
+                "taxable": row["taxable"],
+                "cgst": half,
+                "sgst": round(row["tax"] - half, 2),
+                "igst": 0.0,
+                "total_tax": round(row["tax"], 2),
+            })
+
     total = round(after_discount + gst_amount, 2)
-    return subtotal, disc_amount, gst_amount, total
+    return subtotal, disc_amount, gst_amount, total, breakup
 
 def _bill_number():
     return "FL-" + datetime.now(timezone.utc).strftime("%y%m%d") + "-" + uuid.uuid4().hex[:5].upper()
@@ -466,19 +696,82 @@ async def get_bill(bid: str, user: dict = Depends(get_current_user)):
 
 @api.post("/bills")
 async def create_bill(data: BillIn, user: dict = Depends(get_current_user)):
-    items = [i.model_dump() for i in data.items]
-    subtotal, disc_amount, gst_amount, total = _compute_bill_totals(items, data.discount, data.discount_percent, data.gst_percent)
+    # Expand package items into food/activity lines with proper GST rates
+    raw_items = [i.model_dump() for i in data.items]
+    expanded: List[dict] = []
+    # Pre-fetch referenced game/package docs for HSN/category enrichment
+    pkg_ids = {i.get("ref_id") for i in raw_items if i.get("kind") == "package" and i.get("ref_id")}
+    game_ids = {i.get("ref_id") for i in raw_items if i.get("kind") == "game" and i.get("ref_id")}
+    pkgs = {p["id"]: p for p in await db.packages.find({"id": {"$in": list(pkg_ids)}}, {"_id": 0}).to_list(500)} if pkg_ids else {}
+    games = {g["id"]: g for g in await db.games.find({"id": {"$in": list(game_ids)}}, {"_id": 0}).to_list(500)} if game_ids else {}
+
+    for it in raw_items:
+        if it["kind"] == "package" and it.get("ref_id") and it["ref_id"] in pkgs:
+            p = pkgs[it["ref_id"]]
+            fp = float(p.get("food_portion") or 0)
+            ap = float(p.get("activity_portion") or 0)
+            if fp > 0 and ap > 0:
+                # Split into 2 GST lines
+                expanded.append({
+                    "kind": "package", "ref_id": it["ref_id"],
+                    "name": f"{it['name']} · Food",
+                    "price": round(fp, 2), "qty": it.get("qty", 1),
+                    "gst_percent": 5.0, "category": "food",
+                    "hsn_code": p.get("hsn_food") or HSN_BY_CATEGORY["food"],
+                })
+                expanded.append({
+                    "kind": "package", "ref_id": it["ref_id"],
+                    "name": f"{it['name']} · Activity",
+                    "price": round(ap, 2), "qty": it.get("qty", 1),
+                    "gst_percent": 18.0, "category": "activity",
+                    "hsn_code": p.get("hsn_activity") or HSN_BY_CATEGORY["activity"],
+                })
+                continue
+            # Single-category package (or unsplit) — default to activity 18%
+            it["gst_percent"] = it.get("gst_percent") or 18.0
+            it["category"] = it.get("category") or "activity"
+            it["hsn_code"] = it.get("hsn_code") or (p.get("hsn_activity") or HSN_BY_CATEGORY["activity"])
+            expanded.append(it)
+        elif it["kind"] == "game" and it.get("ref_id") and it["ref_id"] in games:
+            g = games[it["ref_id"]]
+            cat = (g.get("gst_category") or "activity").lower()
+            it["gst_percent"] = it.get("gst_percent") or GST_RATE_BY_CATEGORY.get(cat, 18.0)
+            it["category"] = it.get("category") or cat
+            it["hsn_code"] = it.get("hsn_code") or (g.get("hsn_code") or HSN_BY_CATEGORY.get(cat, "999721"))
+            expanded.append(it)
+        else:
+            # Custom line — fill category-derived defaults
+            rate, hsn, cat = _resolve_line_gst(it)
+            it["gst_percent"] = rate or it.get("gst_percent") or 0
+            it["category"] = cat or it.get("category")
+            it["hsn_code"] = hsn or it.get("hsn_code") or ""
+            expanded.append(it)
+
+    # Determine intra vs inter-state
+    settings = await _get_settings()
+    firm_sc = (settings.get("firm_state_code") or "").strip()
+    cust_sc = (data.customer_state_code or "").strip()
+    is_interstate = bool(firm_sc and cust_sc and firm_sc != cust_sc)
+
+    subtotal, disc_amount, gst_amount, total, gst_breakup = _compute_bill_totals(
+        expanded, data.discount, data.discount_percent, data.gst_percent, is_interstate
+    )
+
     doc = {
         "id": new_id(),
-        "bill_no": _bill_number(),
+        "bill_no": (settings.get("invoice_prefix") or "") + _bill_number(),
         "customer_name": data.customer_name,
         "customer_phone": data.customer_phone,
         "customer_email": data.customer_email,
-        "items": items,
+        "customer_gstin": (data.customer_gstin or "").strip().upper(),
+        "customer_state_code": cust_sc,
+        "items": expanded,
         "discount": disc_amount,
         "discount_percent": data.discount_percent,
         "gst_percent": data.gst_percent,
         "gst_amount": gst_amount,
+        "gst_breakup": gst_breakup,
+        "is_interstate": is_interstate,
         "subtotal": subtotal,
         "total": total,
         "payment_method": data.payment_method,
@@ -642,17 +935,19 @@ async def convert_prebook_to_bill(bid: str, user: dict = Depends(get_current_use
     b = await db.prebookings.find_one({"id": bid}, {"_id": 0})
     if not b:
         raise HTTPException(404, "Booking not found")
-    items = [{"kind": it["kind"], "ref_id": it.get("ref_id"), "name": it["name"], "price": it["price"], "qty": it["qty"], "gst_percent": 0, "category": None} for it in b.get("items", [])]
-    subtotal, disc_amount, gst_amount, total = _compute_bill_totals(items, 0, 0, 0)
+    items = [{"kind": it["kind"], "ref_id": it.get("ref_id"), "name": it["name"], "price": it["price"], "qty": it["qty"], "gst_percent": 0, "category": None, "hsn_code": ""} for it in b.get("items", [])]
+    subtotal, disc_amount, gst_amount, total, gst_breakup = _compute_bill_totals(items, 0, 0, 0, False)
     bill_doc = {
         "id": new_id(),
         "bill_no": _bill_number(),
         "customer_name": b["customer_name"],
         "customer_phone": b["customer_phone"],
         "customer_email": b.get("customer_email", ""),
+        "customer_gstin": "",
+        "customer_state_code": "",
         "items": items,
         "discount": 0, "discount_percent": 0,
-        "gst_percent": 0, "gst_amount": gst_amount,
+        "gst_percent": 0, "gst_amount": gst_amount, "gst_breakup": gst_breakup, "is_interstate": False,
         "subtotal": subtotal, "total": total,
         "payment_method": "razorpay" if b.get("razorpay_link") else "cash",
         "payment_status": "paid" if b.get("payment_status") == "paid" else "pending",
@@ -752,8 +1047,27 @@ async def _get_settings():
             "google_review_url": "",
             "google_reviews_shown": 0,
             "google_rating": 0.0,
+            "firm_name": "",
+            "firm_gstin": "",
+            "firm_state_code": "23",
+            "firm_pan": "",
+            "firm_fssai": "",
+            "invoice_prefix": "",
         }
         await db.settings.insert_one(s)
+    # Backfill new fields for existing rows
+    defaults = {
+        "firm_name": s.get("park_name", ""),
+        "firm_gstin": "",
+        "firm_state_code": "23",
+        "firm_pan": "",
+        "firm_fssai": "",
+        "invoice_prefix": "",
+    }
+    missing = {k: v for k, v in defaults.items() if k not in s}
+    if missing:
+        await db.settings.update_one({"id": "global"}, {"$set": missing})
+        s.update(missing)
     s.pop("_id", None)
     return s
 
@@ -1084,16 +1398,26 @@ def _format_bill_message(bill: dict, settings: dict) -> str:
         f"*{park}*",
         f"Bill: {bill['bill_no']}",
         f"Customer: {bill['customer_name']}",
-        "",
     ]
+    if bill.get("customer_gstin"):
+        lines.append(f"GSTIN: {bill['customer_gstin']}")
+    lines.append("")
     for it in bill["items"]:
-        lines.append(f"- {it['name']} x{it['qty']}  ₹{it['price']*it['qty']}")
+        gst = it.get("gst_percent") or 0
+        tag = f" [{int(gst)}%]" if gst else ""
+        lines.append(f"- {it['name']}{tag} x{it['qty']}  ₹{round(it['price']*it['qty'], 2)}")
     lines.append("")
     lines.append(f"Subtotal: ₹{bill['subtotal']}")
-    if bill["discount"]:
+    if bill.get("discount"):
         lines.append(f"Discount: -₹{bill['discount']}")
-    if bill["gst_amount"]:
-        lines.append(f"GST ({bill['gst_percent']}%): ₹{bill['gst_amount']}")
+    for br in (bill.get("gst_breakup") or []):
+        rate = br.get("rate", 0)
+        if bill.get("is_interstate"):
+            lines.append(f"IGST @{int(rate)}%: ₹{br.get('igst', 0)}")
+        else:
+            lines.append(f"CGST @{rate/2:g}% + SGST @{rate/2:g}% ({int(rate)}% on ₹{br.get('taxable',0)}): ₹{br.get('total_tax', 0)}")
+    if not bill.get("gst_breakup") and bill.get("gst_amount"):
+        lines.append(f"GST ({bill.get('gst_percent', 0)}%): ₹{bill['gst_amount']}")
     lines.append(f"*Total: ₹{bill['total']}*")
     lines.append(f"Status: {bill['payment_status'].upper()}")
     if bill.get("razorpay_link"):

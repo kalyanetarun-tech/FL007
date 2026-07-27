@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 export default function Settings() {
-  const [form, setForm] = useState({ park_name: "", gst_rate: 0, upi_qr_url: "", upi_id: "", phone: "", address: "", google_review_url: "", google_reviews_shown: 0, google_rating: 0 });
+  const [form, setForm] = useState({ park_name: "", gst_rate: 0, upi_qr_url: "", upi_id: "", phone: "", address: "", google_review_url: "", google_reviews_shown: 0, google_rating: 0, firm_name: "", firm_gstin: "", firm_state_code: "23", firm_pan: "", firm_fssai: "", invoice_prefix: "" });
   const [status, setStatus] = useState(null);
 
   useEffect(() => {
@@ -90,7 +90,39 @@ export default function Settings() {
           </div>
         </Card>
 
-        <Card className="p-6 rounded-2xl lg:col-span-2">
+        <Card className="p-6 rounded-2xl lg:col-span-2" data-testid="gst-firm-card">
+          <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-4">GST / Tax Invoice details (Indian compliance)</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Legal / Firm Name</Label>
+              <Input data-testid="set-firm-name" value={form.firm_name || ""} onChange={(e) => setForm({ ...form, firm_name: e.target.value })} placeholder="M/s Funland Adventure Park" />
+              <div className="text-xs text-muted-foreground mt-1">Tax invoice pe yahi naam print hoga</div>
+            </div>
+            <div>
+              <Label>Firm GSTIN</Label>
+              <Input data-testid="set-firm-gstin" value={form.firm_gstin || ""} onChange={(e) => setForm({ ...form, firm_gstin: e.target.value.toUpperCase() })} placeholder="23ABCDE1234F1Z5" maxLength={15} />
+            </div>
+            <div>
+              <Label>State code (2-digit)</Label>
+              <Input data-testid="set-firm-state" value={form.firm_state_code || ""} onChange={(e) => setForm({ ...form, firm_state_code: e.target.value })} placeholder="23 (MP)" maxLength={2} />
+              <div className="text-xs text-muted-foreground mt-1">Same as customer = CGST+SGST · Different = IGST</div>
+            </div>
+            <div>
+              <Label>PAN</Label>
+              <Input data-testid="set-firm-pan" value={form.firm_pan || ""} onChange={(e) => setForm({ ...form, firm_pan: e.target.value.toUpperCase() })} placeholder="ABCDE1234F" maxLength={10} />
+            </div>
+            <div>
+              <Label>FSSAI (for food)</Label>
+              <Input data-testid="set-firm-fssai" value={form.firm_fssai || ""} onChange={(e) => setForm({ ...form, firm_fssai: e.target.value })} placeholder="14-digit FSSAI number" maxLength={14} />
+            </div>
+            <div>
+              <Label>Invoice prefix (optional)</Label>
+              <Input data-testid="set-inv-prefix" value={form.invoice_prefix || ""} onChange={(e) => setForm({ ...form, invoice_prefix: e.target.value })} placeholder="FL/24-25/" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6 rounded-2xl lg:col-span-2" data-testid="integration-status-card">
           <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-4">Integration Status</div>
           {status ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

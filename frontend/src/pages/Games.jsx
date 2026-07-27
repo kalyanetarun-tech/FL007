@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Gamepad2 } from "lucide-react";
 
-const empty = { name: "", category: "Ride", price: 0, offer_price: null, duration_min: null, description: "", active: true };
+const empty = { name: "", category: "Ride", price: 0, offer_price: null, duration_min: null, description: "", active: true, gst_category: "activity", hsn_code: "" };
 
 export default function Games() {
   const { isAdmin } = useAuth();
@@ -120,6 +120,7 @@ export default function Games() {
                         <span className={`text-3xl font-black ${t.accent}`}>{inr(g.price)}</span>
                       )}
                       {g.duration_min && <div className="text-[10px] uppercase tracking-widest font-bold text-foreground/60 mt-1">{g.duration_min} min</div>}
+                      <div className="text-[10px] uppercase tracking-widest font-black text-foreground/60 mt-1">GST {g.gst_category === "food" ? "5%" : "18%"} · {g.gst_category || "activity"}</div>
                     </div>
                     {isAdmin && (
                       <div className="flex gap-1">
@@ -149,6 +150,26 @@ export default function Games() {
               <div><Label>Offer Price ₹</Label><Input type="number" data-testid="game-offer" value={form.offer_price || ""} onChange={(e) => setForm({ ...form, offer_price: e.target.value })} /></div>
             </div>
             <div><Label>Description</Label><Textarea data-testid="game-desc" value={form.description || ""} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3 p-3 bg-primary/5 rounded-xl border border-primary/20">
+              <div>
+                <Label>GST Category*</Label>
+                <select
+                  data-testid="game-gst-cat"
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  value={form.gst_category || "activity"}
+                  onChange={(e) => setForm({ ...form, gst_category: e.target.value })}
+                >
+                  <option value="activity">Activity / Ride (18%)</option>
+                  <option value="food">Food &amp; Beverage (5%)</option>
+                  <option value="goods">Merchandise / Goods (18%)</option>
+                </select>
+                <div className="text-[10px] text-muted-foreground mt-1">Bill par yeh rate auto lagegi</div>
+              </div>
+              <div>
+                <Label>HSN / SAC code</Label>
+                <Input data-testid="game-hsn" value={form.hsn_code || ""} onChange={(e) => setForm({ ...form, hsn_code: e.target.value })} placeholder="Auto — 999721 / 996331" />
+              </div>
+            </div>
             <div className="flex items-center justify-between p-3 bg-muted rounded-xl">
               <Label htmlFor="game-active-switch">Active</Label>
               <Switch id="game-active-switch" data-testid="game-active" checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} />
