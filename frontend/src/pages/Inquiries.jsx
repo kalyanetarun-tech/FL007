@@ -284,34 +284,162 @@ export default function Inquiries() {
 
       {/* Webhook / Channel setup */}
       <Dialog open={webhookOpen} onOpenChange={setWebhookOpen}>
-        <DialogContent className="rounded-2xl max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="text-2xl font-black">Channel Setup — Auto Inquiries</DialogTitle></DialogHeader>
-          <div className="space-y-4 text-sm">
-            <p className="text-muted-foreground">WhatsApp, Instagram, Facebook, SMS aur Call se aane wali inquiries yahan auto-add karne ke liye niche diye URL par POST karvao (Zapier / Twilio / Meta webhook / IVR provider se). Payload: <code className="bg-muted px-1 rounded">{`{name, phone, email, message}`}</code></p>
-            {["whatsapp", "instagram", "facebook", "sms", "call"].map((ch) => {
-              const url = `${backendBase}/api/inquiries/webhook/${ch}`;
-              return (
-                <div key={ch} className="p-3 bg-muted rounded-xl">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="font-bold capitalize">{ch}</div>
-                    <button data-testid={`copy-webhook-${ch}`} onClick={async () => { const ok = await copyToClipboard(url); toast[ok ? "success" : "info"](ok ? "Copied" : "Manual copy fallback shown"); }} className="text-xs font-bold text-secondary flex items-center gap-1"><Copy className="h-3 w-3" /> Copy</button>
-                  </div>
-                  <code className="text-xs break-all">{url}</code>
-                </div>
-              );
-            })}
-            <div className="p-4 border-2 border-dashed border-border rounded-xl text-xs">
-              <div className="font-bold mb-1">Quick recipes</div>
-              <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
-                <li><b>WhatsApp Business</b> → Twilio Sandbox / 360dialog → point &quot;Message received&quot; webhook to <code>/api/inquiries/webhook/whatsapp</code></li>
-                <li><b>Instagram/Facebook</b> → Meta App → Webhook subscription for &quot;messages&quot; → Zapier bridge → POST here</li>
-                <li><b>Missed Call / IVR</b> → Exotel/MyOperator webhook → POST here on call event</li>
-                <li>Round-robin auto-assigns to staff marked &quot;Marketing Executive&quot; in Staff page</li>
-              </ul>
-            </div>
-          </div>
+        <DialogContent className="rounded-2xl max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="text-2xl font-black">Auto Inquiries — Channel Setup</DialogTitle></DialogHeader>
+          <ChannelSetup backendBase={backendBase} />
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ---------------- Channel Setup panel ----------------
+function ChannelSetup({ backendBase }) {
+  const [settings, setSettings] = useState(null);
+  const [tab, setTab] = useState("whatsapp");
+  useEffect(() => { api.get("/settings").then((r) => setSettings(r.data)).catch(() => {}); }, []);
+  if (!settings) return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
+  const secret = settings.inquiry_webhook_secret || "";
+  const metaToken = settings.meta_verify_token || "";
+  const URL = (ch) => `${backendBase}/api/inquiries/webhook/${ch}?secret=${secret}`;
+  const metaUrl = `${backendBase}/api/inquiries/webhook/meta`;
+
+  const CopyRow = ({ label, value, testid }) => (
+    <div className="p-3 bg-muted rounded-xl">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-xs uppercase tracking-widest font-bold text-secondary">{label}</div>
+        <button data-testid={testid} onClick={async () => { const ok = await copyToClipboard(value); toast[ok ? "success" : "info"](ok ? "Copied" : "Manual copy shown"); }} className="text-xs font-bold text-primary flex items-center gap-1"><Copy className="h-3 w-3" /> Copy</button>
+      </div>
+      <code className="text-xs break-all font-mono">{value}</code>
+    </div>
+  );
+
+  const TABS = [
+    { v: "whatsapp",  label: "WhatsApp" },
+    { v: "sms",       label: "SMS" },
+    { v: "instagram", label: "Instagram" },
+    { v: "facebook",  label: "Facebook" },
+    { v: "zapier",    label: "Zapier" },
+  ];
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+        <div className="font-black text-emerald-800 mb-1">Yeh secret share mat karna 🔐</div>
+        <div className="text-emerald-800">Ye secret aapke webhook URL me embedded hai. Kisi ke haath lag gaya to woh bogus inquiries daal sakta hai. Settings me kabhi bhi rotate kar sakte ho.</div>
+      </div>
+      <CopyRow label="Your webhook secret" value={secret} testid="copy-webhook-secret" />
+
+      <div className="flex flex-wrap gap-2 border-b border-border pb-2">
+        {TABS.map((t) => (
+          <button key={t.v} data-testid={`ch-tab-${t.v}`} onClick={() => setTab(t.v)} className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-widest ${tab === t.v ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "whatsapp" && (
+        <div className="space-y-4">
+          <div className="text-xs uppercase tracking-widest font-black text-secondary">Phase 1 — WhatsApp Business App (FREE, aaj chalu)</div>
+          <div className="p-4 border border-border rounded-xl text-xs space-y-2">
+            <div className="font-bold">Setup via Android SMS/Notification Forwarder (5 min):</div>
+            <ol className="list-decimal pl-4 space-y-1 text-muted-foreground">
+              <li>Funland ke WhatsApp Business phone pe install karo: <a className="text-primary font-bold underline" target="_blank" rel="noreferrer" href="https://play.google.com/store/apps/details?id=io.github.bareya.smsforwarder">SMS Forwarder</a> ya <a className="text-primary font-bold underline" target="_blank" rel="noreferrer" href="https://play.google.com/store/apps/details?id=de.k3b.android.smsimport">MacroDroid + Webhook</a></li>
+              <li>App me: <b>Add Rule</b> → Trigger: WhatsApp Notification / New Message → Action: <b>Webhook POST</b></li>
+              <li>URL me neeche wala copy-paste karo, method POST, content-type JSON:</li>
+            </ol>
+          </div>
+          <CopyRow label="WhatsApp webhook URL" value={URL("whatsapp")} testid="copy-url-whatsapp" />
+          <div className="p-3 bg-muted rounded-xl text-xs">
+            <div className="font-bold mb-1">Body template (paste in the app):</div>
+            <code className="block font-mono text-[10px] whitespace-pre">{`{
+  "name": "{{sender}}",
+  "phone": "{{sender}}",
+  "message": "{{text}}"
+}`}</code>
+          </div>
+
+          <div className="text-xs uppercase tracking-widest font-black text-secondary mt-6">Phase 2 — Meta WhatsApp Cloud API (FREE tier, verified)</div>
+          <div className="p-4 border border-border rounded-xl text-xs space-y-2">
+            <ol className="list-decimal pl-4 space-y-1 text-muted-foreground">
+              <li>Go to <a className="text-primary font-bold underline" target="_blank" rel="noreferrer" href="https://developers.facebook.com/apps/">developers.facebook.com/apps</a> → Create App → Business → add <b>WhatsApp</b> product</li>
+              <li>Webhook section me Callback URL neeche wala paste karo, Verify Token bhi neeche wala:</li>
+            </ol>
+          </div>
+          <CopyRow label="Meta Callback URL" value={metaUrl} testid="copy-meta-url" />
+          <CopyRow label="Meta Verify Token" value={metaToken} testid="copy-meta-token" />
+          <div className="p-3 bg-muted rounded-xl text-xs">Subscribe fields: <b>messages</b>. Meta ki verification pass hote hi live inquiries flow hone lagengi.</div>
+
+          <div className="text-xs uppercase tracking-widest font-black text-secondary mt-6">Alternative — Twilio WhatsApp (paid, 2-3 din)</div>
+          <div className="p-4 border border-border rounded-xl text-xs">
+            <div className="font-bold mb-1">Twilio Console → Messaging → Settings → WhatsApp Sandbox / Sender:</div>
+            <div className="text-muted-foreground">Point "When a message comes in" webhook to URL below (POST). Twilio bheji hui form-urlencoded body auto-parse ho jayegi.</div>
+          </div>
+          <CopyRow label="Twilio WhatsApp webhook URL" value={URL("twilio")} testid="copy-url-twilio-wa" />
+        </div>
+      )}
+
+      {tab === "sms" && (
+        <div className="space-y-4">
+          <div className="text-xs uppercase tracking-widest font-black text-secondary">Phase 1 — Android SMS Forwarder (FREE)</div>
+          <div className="p-4 border border-border rounded-xl text-xs space-y-2">
+            <ol className="list-decimal pl-4 space-y-1 text-muted-foreground">
+              <li>Play Store se install karo: <a className="text-primary font-bold underline" target="_blank" rel="noreferrer" href="https://play.google.com/store/apps/details?id=tech.bogomolov.incomingsmsgateway">SMS to URL Forwarder</a></li>
+              <li>App khol ke <b>Add rule</b> → Sender: * (all), URL: neeche wala paste karo, JSON body:</li>
+            </ol>
+            <div className="p-3 bg-background rounded mt-2">
+              <code className="block font-mono text-[10px] whitespace-pre">{`{ "from": "%from%", "text": "%text%", "sentStamp": "%sentStamp%" }`}</code>
+            </div>
+            <div className="text-muted-foreground">SMS aate hi auto-forward ho jayegi CRM me — koi cost nahi.</div>
+          </div>
+          <CopyRow label="SMS webhook URL" value={URL("sms")} testid="copy-url-sms" />
+
+          <div className="text-xs uppercase tracking-widest font-black text-secondary mt-6">Alternative — Twilio SMS / MSG91 (paid)</div>
+          <div className="p-3 bg-muted rounded-xl text-xs">Twilio ka "Inbound SMS webhook" ho MSG91 ka "Two-way SMS Webhook" — dono aapka URL <code>{URL("twilio")}</code> pe POST karenge. Body auto-parse.</div>
+        </div>
+      )}
+
+      {(tab === "instagram" || tab === "facebook") && (
+        <div className="space-y-4">
+          <div className="text-xs uppercase tracking-widest font-black text-secondary">Meta Business API (Instagram + Facebook — same setup)</div>
+          <div className="p-4 border border-border rounded-xl text-xs space-y-2">
+            <ol className="list-decimal pl-4 space-y-1 text-muted-foreground">
+              <li><b>Prep:</b> Aapke pass Instagram Business account (Facebook Page se linked) hona chahiye. Personal account nahi chalega.</li>
+              <li>Go to <a className="text-primary font-bold underline" target="_blank" rel="noreferrer" href="https://developers.facebook.com/apps/">developers.facebook.com/apps</a> → Create App → Business type</li>
+              <li>Add products: <b>Instagram Graph API</b> + <b>Messenger</b> + (optional) <b>WhatsApp</b></li>
+              <li>Webhook section me: Callback URL + Verify Token daalo (neeche se copy karo)</li>
+              <li>Subscribe to fields: <code>messages</code>, <code>messaging_postbacks</code>, <code>messaging_referrals</code></li>
+              <li>App Review submit karo (~1-2 hafte). Approval ke baad live inquiries aane lagengi.</li>
+            </ol>
+          </div>
+          <CopyRow label="Meta Callback URL" value={metaUrl} testid={`copy-meta-url-${tab}`} />
+          <CopyRow label="Meta Verify Token" value={metaToken} testid={`copy-meta-token-${tab}`} />
+          {tab === "instagram" && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+              <b>Bonus:</b> Bina API ke, tab tak aap Instagram Story / Post ki DMs ko manually Zapier "Instagram for Business → Zap" se bhi CRM ko pass kar sakte ho (Zapier tab dekho).
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "zapier" && (
+        <div className="space-y-4">
+          <div className="text-xs uppercase tracking-widest font-black text-secondary">Zapier — universal bridge (FREE 100 tasks/month)</div>
+          <div className="p-4 border border-border rounded-xl text-xs space-y-2">
+            <ol className="list-decimal pl-4 space-y-1 text-muted-foreground">
+              <li>Sign up at <a className="text-primary font-bold underline" target="_blank" rel="noreferrer" href="https://zapier.com/">zapier.com</a></li>
+              <li>Create Zap → Trigger: (any app — Instagram / FB / Gmail / SMS / Webhook)</li>
+              <li>Action: <b>Webhooks by Zapier</b> → <b>POST</b> → URL below → Data: map fields <code>name</code>, <code>phone</code>, <code>message</code></li>
+            </ol>
+          </div>
+          <CopyRow label="Zapier POST URL (choose source)" value={URL("whatsapp")} testid="copy-url-zapier" />
+          <div className="text-xs text-muted-foreground">Har channel ka URL Zap me alag rakhna — path ke last part ko badalke (whatsapp / sms / instagram / facebook / call / other). Zapier ke free plan me ~100 inquiries/month auto process ho jayengi.</div>
+        </div>
+      )}
+
+      <div className="text-[11px] text-muted-foreground border-t border-border pt-3">
+        Sab channels round-robin se aapke <b>Marketing Executive</b> staff members me distribute honge. Staff page pe checkbox laga do.
+      </div>
     </div>
   );
 }

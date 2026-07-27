@@ -83,23 +83,26 @@ Added later:
 5. When ready for social auto-sync, apply for Meta Business API access
 
 ## Changelog
+### 2026-07-27 (v4) — Auto Inquiries: WhatsApp + SMS + Instagram + Facebook
+- **Secured inbound webhook** with per-park `inquiry_webhook_secret` (auto-generated; passed as `?secret=` or `X-Webhook-Secret` header). Wrong/missing secret → 401.
+- **Multi-format payload parsing** — same endpoint accepts:
+  - Generic JSON: `{name, phone, message}`
+  - **Twilio SMS + WhatsApp** (form-urlencoded `From/Body/ProfileName`) → responds with TwiML
+  - **Android SMS Forwarder / MacroDroid** (`{from, text, sentStamp}`)
+  - **Meta WhatsApp Cloud API** (`entry[].changes[].value.messages[]`) — full contact/profile extraction
+  - **Meta Instagram + Messenger** (`entry[].messaging[]`)
+  - **Zapier** flat mapping
+- **Meta verify endpoint** — `GET /api/inquiries/webhook/meta` handles `hub.mode/hub.verify_token/hub.challenge` with per-park `meta_verify_token`
+- **Frontend Channel Setup** — completely redesigned Inquiries → "Channel Setup" modal now has 5 tabs (WhatsApp, SMS, Instagram, Facebook, Zapier) with step-by-step recipes, Play Store links, one-click Copy for URLs + secret + Meta verify token. Provides both FREE Phase-1 (Android forwarder / WA Business App) and Paid/Verified Phase-2 (Meta Cloud API / Twilio) setup guides.
+- **Round-robin assignment** continues to auto-distribute to Marketing Executive staff.
+
 ### 2026-07-27 (v3) — Multi-category package split · UPI everywhere · Lenient Excel import
-- **Package GST split** upgraded from 2-category (food/activity) to a **dynamic list of any GST categories**: Activity/Games 18%, Food 5%, Room/Stay 12%, Clothing 12%, Merchandise 18%, Other 18%. Autofill button splits equally from inclusions. Each package can have unlimited split lines; auto-expands into that many invoice lines with correct GST + HSN.
-- **UPI QR block everywhere** — new reusable `UpiPayBlock` (full/compact/print variants) rendered on: New Visit (when payment method = UPI QR), Bill Detail Pay Now card, Print Bill (for pending bills), Public Pre-booking checkout. Prefers uploaded QR image, falls back to live-generated UPI intent QR. Copy-to-clipboard for UPI ID, "Open in UPI App" deep link.
-- **Inquiries Excel import made super-lenient** — accepts any format:
-  - Detects Name/Phone columns via English + Hindi aliases (नाम, मोबाइल, contact, mob, customer, guest, etc.)
-  - Falls back to whole-row scanning if header is missing / weird
-  - Auto-normalises phone: strips +91, handles floats, keeps 10 digits
-  - Rows with phone but no name → `name = "Unknown"`
-  - Skips junk rows before real header (up to row 5)
-  - Source shortcuts (`insta`, `fb`, `wa`, `walkin`) auto-normalised
-  - Never returns 400 on a valid xlsx — imports whatever it can
+- Package now supports unlimited GST split lines (Activity 18%, Food 5%, Room 12%, Clothing 12%, Merchandise 18%, Other 18%). Autofill button splits equally from inclusions.
+- New reusable `UpiPayBlock` (full/compact/print) rendered on New Visit, Bill Detail, Print Bill, Public Pre-booking.
+- Inquiries Excel import now super-lenient — accepts any header (English/Hindi), phone-only rows → name="Unknown", floats, +91 prefix, junk header rows, source shortcuts.
 
 ### 2026-07-27 — Indian GST compliance + Inquiries Excel v1
-- GST-compliant tax invoice across bills & packages: Food 5%, Activities 18%, per-item HSN/SAC, CGST+SGST intra-state, IGST inter-state
-- `customer_gstin`, `customer_state_code` on bills; auto `is_interstate` detection
-- Game GST category selector; Settings GST/Tax Invoice details (firm_name, firm_gstin, firm_state_code, firm_pan, firm_fssai, invoice_prefix)
-- Inquiries: Import Excel / Export / Template buttons
+- Tax-invoice compliant bills (CGST+SGST or IGST, HSN, GSTIN, gst_breakup). Firm GST / FSSAI card in Settings. Excel export/import.
 
 ### 2026-07-26 — Dashboard "Sales Mix" upgrade
-- Removed "Popular rides" card; added Packages Sold + Games/Activities Played metric cards driven by the analytics date-range; new stacked bar chart; Top-3 packages/games lists
+- Packages Sold + Games Played metric cards + stacked bar chart replacing Popular Rides.

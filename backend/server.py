@@ -7,6 +7,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 import os
 import uuid
+import secrets
 import logging
 import base64
 from datetime import datetime, timezone, date, timedelta
@@ -14,8 +15,8 @@ from typing import List, Optional, Literal
 
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, status, UploadFile, File
-from fastapi.responses import Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, status, UploadFile, File, Query
+from fastapi.responses import Response, PlainTextResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -379,20 +380,29 @@ async def _pick_next_marketing_exec() -> Optional[dict]:
     idx = ((counter_doc or {}).get("v", 0) - 1) % len(execs)
     return execs[max(idx, 0)]
 
-@api.post("/inquiries/webhook/{source}")
-async def inquiry_webhook(source: str, payload: dict):
-    """Public webhook - configure your channel provider to POST here.
-    Expected payload: {name?, phone?, email?, message?, notes?}."""
-    src_map = {"whatsapp": "whatsapp", "instagram": "instagram", "facebook": "facebook", "sms": "phone", "call": "phone", "web": "other"}
+async def _create_inquiry_from_normalized(name: str, phone: str, email: str, source: str, message: str, meta: dict = None):
+    """Shared helper: create + assign inquiry from normalized fields."""
+    src_map = {"whatsapp": "whatsapp", "instagram": "instagram", "facebook": "facebook", "sms": "phone", "phone": "phone", "call": "phone", "web": "other", "twilio_sms": "phone", "twilio_wa": "whatsapp"}
+    # Normalise phone: keep digits, strip +91
+    if phone:
+        import re as _re
+        digits = _re.sub(r"\D", "", str(phone))
+        if len(digits) > 10 and digits.startswith("91"):
+            digits = digits[-10:]
+        phone = digits[-10:] if len(digits) >= 10 else digits
+    if not name and phone:
+        name = "Unknown"
+    if not name and not phone:
+        return None
     assignee = await _pick_next_marketing_exec()
     doc = {
         "id": new_id(),
-        "name": payload.get("name") or payload.get("from") or "Unknown",
-        "phone": payload.get("phone") or payload.get("from") or "",
-        "email": payload.get("email", ""),
+        "name": name or "Unknown",
+        "phone": phone or "",
+        "email": email or "",
         "source": src_map.get(source, "other"),
-        "interest": payload.get("interest", ""),
-        "notes": payload.get("message") or payload.get("notes", ""),
+        "interest": (meta or {}).get("interest", ""),
+        "notes": message or "",
         "status": "new",
         "remarks": [],
         "assigned_to": assignee["id"] if assignee else None,
@@ -400,11 +410,113 @@ async def inquiry_webhook(source: str, payload: dict):
         "created_by": "webhook",
         "created_by_name": f"{source} webhook",
         "created_at": now_iso(),
+        "channel_raw": meta or {},
     }
     await db.inquiries.insert_one(doc)
     doc.pop("_id", None)
-    logger.info(f"Webhook inquiry from {source}: {doc['name']} → {assignee['name'] if assignee else 'unassigned'}")
+    logger.info(f"Webhook inquiry from {source}: {doc['name']} ({doc['phone']}) → {assignee['name'] if assignee else 'unassigned'}")
+    return doc
+
+def _verify_webhook_secret(settings: dict, provided: Optional[str]) -> bool:
+    expected = (settings or {}).get("inquiry_webhook_secret") or ""
+    if not expected:
+        return True  # never generated — allow through
+    return provided == expected
+
+# --- Meta WhatsApp / Instagram / Messenger Cloud API (defined BEFORE the parameterised /{source} route) ---
+@api.get("/inquiries/webhook/meta")
+async def meta_webhook_verify(hub_mode: str = Query(None, alias="hub.mode"), hub_verify_token: str = Query(None, alias="hub.verify_token"), hub_challenge: str = Query(None, alias="hub.challenge")):
+    """Meta requires GET verification when you register the webhook URL in the app dashboard."""
+    settings = await _get_settings()
+    if hub_mode == "subscribe" and hub_verify_token == (settings.get("meta_verify_token") or ""):
+        return PlainTextResponse(hub_challenge or "ok")
+    raise HTTPException(403, "verify_token mismatch")
+
+@api.post("/inquiries/webhook/meta")
+async def meta_webhook_inbound(request: Request):
+    """Meta Cloud API delivers to this endpoint for WhatsApp / Instagram / FB Messenger.
+    We inspect entry[*].changes[*].value / entry[*].messaging[*] and create an inquiry per message."""
+    try: payload = await request.json()
+    except Exception: payload = {}
+    created = []
+    entries = payload.get("entry", []) if isinstance(payload, dict) else []
+    for entry in entries:
+        # WhatsApp Cloud API shape
+        for ch in entry.get("changes", []) or []:
+            v = ch.get("value") or {}
+            contacts = { c.get("wa_id"): (c.get("profile") or {}).get("name") for c in (v.get("contacts") or []) }
+            for msg in v.get("messages") or []:
+                wa_id = msg.get("from")
+                name = contacts.get(wa_id) or ""
+                text = ""
+                if msg.get("type") == "text":
+                    text = (msg.get("text") or {}).get("body", "")
+                elif msg.get("type") == "interactive":
+                    ir = msg.get("interactive") or {}
+                    text = (ir.get("button_reply") or ir.get("list_reply") or {}).get("title", "")
+                else:
+                    text = f"[{msg.get('type')} message]"
+                doc = await _create_inquiry_from_normalized(name, wa_id, "", "whatsapp", text, meta={"raw": msg})
+                if doc: created.append(doc["id"])
+        # Instagram / Messenger shape
+        for m in entry.get("messaging", []) or []:
+            sender = (m.get("sender") or {}).get("id") or ""
+            text = ((m.get("message") or {}).get("text")) or ""
+            src = "instagram"  # FB pages under Meta API deliver to same endpoint; caller can distinguish via entry.id
+            doc = await _create_inquiry_from_normalized(f"IG/FB user {sender[-6:]}" if sender else "", "", "", src, text, meta={"raw": m, "sender_id": sender})
+            if doc: created.append(doc["id"])
+    return {"ok": True, "created": created}
+
+
+@api.post("/inquiries/webhook/{source}")
+async def inquiry_webhook(source: str, request: Request, secret: Optional[str] = Query(None), x_webhook_secret: Optional[str] = None):
+    """Public inbound webhook - accepts many payload shapes.
+
+    Auth: pass ?secret=<inquiry_webhook_secret> OR header X-Webhook-Secret.
+
+    Supported payloads (auto-detected):
+    - Generic JSON: {name?, phone?, email?, message?/notes?}
+    - Twilio SMS/WhatsApp (form-urlencoded): From=..., Body=..., ProfileName?
+    - Android SMS Forwarder v3: {from, text, sentStamp, ...}
+    - Zapier flat: any of the above keys
+    """
+    settings = await _get_settings()
+    provided = secret or request.headers.get("x-webhook-secret") or request.headers.get("X-Webhook-Secret")
+    if not _verify_webhook_secret(settings, provided):
+        raise HTTPException(401, "Invalid webhook secret")
+
+    ctype = (request.headers.get("content-type") or "").lower()
+    body_payload = {}
+    if "application/x-www-form-urlencoded" in ctype or "multipart/form-data" in ctype:
+        form = await request.form()
+        body_payload = dict(form)
+    else:
+        try: body_payload = await request.json()
+        except Exception: body_payload = {}
+
+    # Normalise across shapes
+    name = body_payload.get("name") or body_payload.get("ProfileName") or body_payload.get("profile_name") or body_payload.get("sender_name") or body_payload.get("from_name")
+    phone = body_payload.get("phone") or body_payload.get("from") or body_payload.get("From") or body_payload.get("wa_id") or body_payload.get("mobile")
+    email = body_payload.get("email") or body_payload.get("Email")
+    message = body_payload.get("message") or body_payload.get("Body") or body_payload.get("text") or body_payload.get("notes") or body_payload.get("msg")
+
+    # Twilio WhatsApp: From="whatsapp:+9198..." → normalise
+    if phone and isinstance(phone, str) and phone.lower().startswith("whatsapp:"):
+        phone = phone.split(":", 1)[1]
+        source = "whatsapp"
+    # Twilio SMS: From="+9198..."
+    if source == "twilio":
+        source = "whatsapp" if body_payload.get("MessagingServiceSid", "").lower().startswith("mg") or "whatsapp" in str(body_payload.get("MessageStatus", "")) else "sms"
+
+    doc = await _create_inquiry_from_normalized(name, phone, email, source, message, meta={"raw": body_payload})
+    if not doc:
+        return {"ok": False, "reason": "no_name_or_phone"}
+
+    # Twilio expects a TwiML response (optional; empty is fine)
+    if "twilio" in source or "MessageSid" in body_payload:
+        return PlainTextResponse("<Response></Response>", media_type="application/xml")
     return {"ok": True, "id": doc["id"], "assigned_to": doc.get("assigned_to_name")}
+
 
 @api.post("/inquiries")
 async def create_inquiry(data: InquiryIn, user: dict = Depends(get_current_user)):
@@ -1210,8 +1322,10 @@ async def _get_settings():
         "firm_pan": "",
         "firm_fssai": "",
         "invoice_prefix": "",
+        "inquiry_webhook_secret": secrets.token_urlsafe(24),
+        "meta_verify_token": secrets.token_urlsafe(16),
     }
-    missing = {k: v for k, v in defaults.items() if k not in s}
+    missing = {k: v for k, v in defaults.items() if k not in s or (k.endswith("_secret") or k.endswith("_token")) and not s.get(k)}
     if missing:
         await db.settings.update_one({"id": "global"}, {"$set": missing})
         s.update(missing)
