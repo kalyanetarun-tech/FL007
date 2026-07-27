@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Search, Plus, Minus, X, Gamepad2, PartyPopper, Receipt, Percent, IndianRupee } from "lucide-react";
+import UpiPayBlock from "@/components/UpiPayBlock";
 
 const CATEGORIES = [
   { v: "activity", label: "Activity", defaultGst: 18 },
@@ -32,11 +33,13 @@ export default function NewVisit() {
   const [paymentStatus, setPaymentStatus] = useState("paid");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [settings, setSettings] = useState(null);
   const nav = useNavigate();
 
   useEffect(() => {
     api.get("/games").then((r) => setGames(r.data.filter((g) => g.active))).catch(() => {});
     api.get("/packages").then((r) => setPackages(r.data.filter((p) => p.active))).catch(() => {});
+    api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
   }, []);
 
   const priceOf = (item) => (item.offer_price && item.offer_price < item.price ? item.offer_price : item.price);
@@ -56,7 +59,7 @@ export default function NewVisit() {
         // Package will be exploded on backend into food + activity lines with 5% + 18%
         catV = "activity"; gst = 18;
       }
-      return [...c, { kind, ref_id: item.id, name: item.name, price: priceOf(item), qty: 1, category: catV, gst_percent: gst, is_package_split: kind === "package" && (item.food_portion > 0 && item.activity_portion > 0) }];
+      return [...c, { kind, ref_id: item.id, name: item.name, price: priceOf(item), qty: 1, category: catV, gst_percent: gst, is_package_split: kind === "package" && ((Array.isArray(item.gst_split) && item.gst_split.length > 0) || (item.food_portion > 0 && item.activity_portion > 0)), split_preview: kind === "package" ? (Array.isArray(item.gst_split) && item.gst_split.length ? item.gst_split : ((item.food_portion > 0 || item.activity_portion > 0) ? [item.food_portion > 0 && { label: "Food", category: "food", amount: item.food_portion }, item.activity_portion > 0 && { label: "Activity", category: "activity", amount: item.activity_portion }].filter(Boolean) : [])) : [] }];
     });
   };
   const setQty = (idx, qty) => setCart((c) => c.map((x, i) => i === idx ? { ...x, qty: Math.max(1, qty) } : x));
@@ -211,8 +214,13 @@ export default function NewVisit() {
                       </div>
                     </div>
                     {it.kind === "package" && it.is_package_split && (
-                      <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 rounded px-2 py-1">
-                        📦 Yeh package bill par auto split hoga: Food @5% + Activity @18%
+                      <div className="text-[10px] font-bold text-emerald-700 bg-emerald-50 rounded px-2 py-1 space-y-0.5">
+                        <div>📦 Bill par yeh package auto-split hoga:</div>
+                        {(it.split_preview || []).map((s, si) => {
+                          const rateMap = { food: 5, activity: 18, room: 12, clothing: 12, merchandise: 18, other: 18 };
+                          const r = rateMap[s.category] || 18;
+                          return <div key={si} className="pl-4">· {s.label || s.category} ₹{s.amount} @{r}%</div>;
+                        })}
                       </div>
                     )}
                   </div>
@@ -254,6 +262,12 @@ export default function NewVisit() {
               </div>
               <Textarea data-testid="bill-notes" placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="text-sm" />
             </div>
+
+            {paymentMethod === "upi_qr" && (settings?.upi_qr_url || settings?.upi_id) && (
+              <div className="mt-4">
+                <UpiPayBlock settings={settings} amount={total} note="New bill" variant="compact" />
+              </div>
+            )}
 
             <div className="space-y-2 mt-4 pt-4 border-t border-border">
               <Row label="Subtotal" value={inr(subtotal)} />

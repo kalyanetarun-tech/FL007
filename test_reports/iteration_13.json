@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 13 — Multi-category GST split (activity/food/room/clothing/merchandise/other) and super-lenient inquiries/import. Backend: created /app/backend/tests/test_iter13_gst_split_and_lenient_import.py with 10 pytest cases: (a) 4-category gst_split package (Games/Dinner/Room stay/T-shirt @ 2000/1200/1500/300) auto-expands into 4 bill lines with correct gst_percent (18/5/12/12) and HSN (999721/996331/996311/6109), gst_breakup has 3 unique rates (5/12/18) with CGST+SGST split (intra-state, IGST=0); (b) merchandise + other both @18% HSN 999799; (c) legacy food_portion+activity_portion continues to auto-split into 2 lines (5% + 18%); (d) inquiries/import headerless xlsx with phone-only rows → name='Unknown'; (e) Hindi header (नाम/मोबाइल) detected; (f) junk header row before real header detected in row 2; (g) float phone 9111100007.0 → '9111100007'; (h) '+91' / '919...' / '+91-...' prefix stripped to last 10 digits; (i) source shortcuts insta/fb/wa/walkin → instagram/facebook/whatsapp/walk-in; (j) import with weird header (no name/phone alias) does NOT return 400 — still imports via cell-scan fallback. Result: 10/10 PASSED in 7.04s. Full regression on prior test_gst_compliance.py: 16/16 PASSED. Frontend Playwright on desktop 1440x900: logged in as admin, verified all requested test IDs on /packages Add dialog (pkg-gst-split-card, pkg-add-split-btn, pkg-autofill-btn, pkg-split-label-N, pkg-split-cat-N, pkg-split-amt-N, pkg-split-sum). Autofill from inclusions='Games, Dinner, Room, T-shirt' + price 5000 creates 4 rows summing to 5000 (equal split, all default 'activity' category). Split-sum badge showed green (emerald class) when sum==price. Saved a package with explicit categories (Games/activity/2000, Dinner/food/1200, Room stay/room/1500, T-shirt/clothing/300) and verified card renders: '· Games ₹2000 @18% · Dinner ₹1200 @5% · Room stay ₹1500 @12% · T-shirt ₹300 @12%'. Generated a bill from that package (bill_id=1fe05a66-...) and on /bills/{id} verified upi-pay-block, upi-qr-img (src = artifact URL), upi-id-btn (text='linearcurrent@axl'), upi-open-app-btn all present. On /bills/{id}/print for pending bill verified upi-pay-block-print + QR + 'Pay via UPI' + linearcurrent@axl all in HTML; after Mark Paid, print block count=0 (hidden). On /visit switched Payment Method to 'UPI (QR)' and verified upi-pay-block-compact appears. Code-review-verified: PublicBook.jsx line 220 imports and renders UpiPayBlock in checkout. Existing packages (Birthday Gold/Silver/Fun Starter/Gold, 12 total) still render normally — regression clean.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Packages Add dialog + NewVisit line-cat Select", "issues": ["React hydration warning: 'In HTML, <span> cannot be a child of <option>' — comes from a shadcn Select rendering <span> inside native <option>. Non-blocking but noisy in console."]},
+      {"screen": "Global (PWA install prompt)", "issues": ["'Install Funland App' toast + 'Install manually' modal can overlay bill-generate button in some flows; needed to dismiss via 'Later' in Playwright. Not a bug per se, but sometimes covers the CTA on smaller viewports."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter13_gst_split_and_lenient_import.py",
+    "/app/test_reports/pytest/pytest_iter13.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py now 1697 lines — long-standing recommendation to split into routers (auth/games/packages/bills/inquiries/settings) still open. Not blocking.",
+    "packages autoFillFromInclusions() defaults ALL rows to category='activity' — a small UX enhancement would be to keyword-map: 'dinner|food|snack|cake' → food, 'room|stay|night' → room, 't-shirt|tshirt|apparel|jersey' → clothing. Optional; spec only required sum==price, which is satisfied.",
+    "inquiries/import: assignee_doc lookup uses direct name equality — case-sensitive. Consider case-insensitive match if importers vary casing. Non-critical.",
+    "PublicBook UpiPayBlock is rendered unconditionally — good; UpiPayBlock itself returns null when both upi_id & upi_qr_url are missing, so safe on parks that haven't configured UPI.",
+    "PrintBill useEffect auto-triggers window.print() 400ms after data load — this can fire before UpiPayBlock's QR <img> has fully loaded from remote CDN in slow-network scenarios; the printed PDF might miss the QR. Consider waiting for image load event before firing print, or preloading via new Image().",
+    "PackageIn accepts gst_percent per split line but backend also fills default from category — fine. HSN default map for clothing=6109 is correct for apparel > ₹1000; if a park sells cheaper apparel (<₹1000, 5% GST) there's no override yet — minor edge case."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter13_gst_split_and_lenient_import.py"],
+  "success_rate": {"backend": "100% (10/10 new + 16/16 regression = 26/26)", "frontend": "100% (all requested test IDs + flows verified)"},
+  "test_credentials": "admin@funland.in / Funland@123",
+  "seed_data_creation": "Created 2 TESTUI13_* packages (with full gst_split) and 1 TEST_UpiBill bill via UI. Also several TEST_* inquiries via import round-trip (cleaned up per test). Main agent may delete via mongo: db.packages.deleteMany({name:/^TESTUI13_/}), db.bills.deleteMany({customer_name:/^TEST_UpiBill/}).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "GST_RATE_BY_CATEGORY & HSN_BY_CATEGORY are the SoT for both gst_split expansion (create_bill line 855-876) and the frontend CAT_OPTIONS in Packages.jsx line 17-24 — keep in sync when adding a new category. UPI QR artifact URL: https://customer-assets-lqy194kg.emergentagent.net/job_game-package-tracker/artifacts/4qosvjmo_upi%20id%20.jpeg — settings.upi_id=linearcurrent@axl, phone=+91 91111 10999. Print page auto-invokes window.print() 400ms after load — always stub via page.add_init_script('window.print=()=>{}') before navigation. pkg-split-cat is a NATIVE <select> element — use page.select_option(value='food') not get_by_role('option').",
+  "rca of the issue": "N/A — all 16 acceptance items from review request (5 backend + 6 frontend + regression) verified working."
+}

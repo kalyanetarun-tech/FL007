@@ -11,9 +11,20 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, PartyPopper } from "lucide-react";
+import { Plus, Pencil, Trash2, PartyPopper, X as XIcon } from "lucide-react";
 
-const empty = { name: "", type: "birthday", category: "", price: 0, offer_price: null, pax: 10, inclusions: "", description: "", active: true, food_portion: 0, activity_portion: 0, hsn_food: "996331", hsn_activity: "999721" };
+// GST rate reference (must match backend GST_RATE_BY_CATEGORY)
+const CAT_OPTIONS = [
+  { v: "activity",    label: "Activity / Games",   rate: 18 },
+  { v: "food",        label: "Food / F&B",          rate: 5 },
+  { v: "room",        label: "Room / Stay",         rate: 12 },
+  { v: "clothing",    label: "Clothing",            rate: 12 },
+  { v: "merchandise", label: "Merchandise",         rate: 18 },
+  { v: "other",       label: "Other",               rate: 18 },
+];
+const rateFor = (cat) => (CAT_OPTIONS.find((c) => c.v === cat) || CAT_OPTIONS[0]).rate;
+
+const empty = { name: "", type: "birthday", category: "", price: 0, offer_price: null, pax: 10, inclusions: "", description: "", active: true, gst_split: [] };
 
 export default function Packages() {
   const { isAdmin } = useAuth();
@@ -33,13 +44,15 @@ export default function Packages() {
   const save = async () => {
     if (!form.name || !form.price) return toast.error("Name & price required");
     const inclusions = typeof form.inclusions === "string" ? form.inclusions.split(",").map((s) => s.trim()).filter(Boolean) : form.inclusions;
-    const fp = +form.food_portion || 0;
-    const ap = +form.activity_portion || 0;
     const price = +form.price;
-    if (fp + ap > 0 && Math.abs(fp + ap - price) > 0.5) {
-      return toast.error(`Food (₹${fp}) + Activity (₹${ap}) = ₹${fp+ap} — should equal Price ₹${price}`);
+    const gst_split = (form.gst_split || [])
+      .map((s) => ({ label: (s.label || "").trim(), category: s.category || "activity", amount: +s.amount || 0 }))
+      .filter((s) => s.amount > 0 && s.label);
+    const splitSum = gst_split.reduce((s, r) => s + r.amount, 0);
+    if (gst_split.length > 0 && Math.abs(splitSum - price) > 0.5) {
+      return toast.error(`Split sum ₹${splitSum} must equal Price ₹${price}`);
     }
-    const payload = { ...form, inclusions, price, offer_price: form.offer_price ? +form.offer_price : null, pax: +form.pax || 1, food_portion: fp, activity_portion: ap };
+    const payload = { ...form, inclusions, price, offer_price: form.offer_price ? +form.offer_price : null, pax: +form.pax || 1, gst_split, food_portion: 0, activity_portion: 0 };
     try {
       if (editing) await api.patch(`/packages/${editing}`, payload);
       else await api.post("/packages", payload);
@@ -47,7 +60,34 @@ export default function Packages() {
     } catch (e) { toast.error(fmtErr(e)); }
   };
   const remove = async (id) => { if (!window.confirm("Delete package?")) return; try { await api.delete(`/packages/${id}`); load(); } catch (e) { toast.error(fmtErr(e)); } };
-  const edit = (p) => { setEditing(p.id); setForm({ ...p, inclusions: (p.inclusions || []).join(", "), offer_price: p.offer_price ?? "" }); setOpen(true); };
+  const edit = (p) => {
+    // Migrate legacy food_portion + activity_portion into gst_split if needed
+    let gst_split = Array.isArray(p.gst_split) ? p.gst_split : [];
+    if (gst_split.length === 0 && ((p.food_portion || 0) + (p.activity_portion || 0) > 0)) {
+      gst_split = [];
+      if (p.food_portion > 0) gst_split.push({ label: "Food", category: "food", amount: p.food_portion });
+      if (p.activity_portion > 0) gst_split.push({ label: "Activity", category: "activity", amount: p.activity_portion });
+    }
+    setEditing(p.id);
+    setForm({ ...p, inclusions: (p.inclusions || []).join(", "), offer_price: p.offer_price ?? "", gst_split });
+    setOpen(true);
+  };
+  const addSplitRow = () => setForm((f) => ({ ...f, gst_split: [...(f.gst_split || []), { label: "", category: "activity", amount: 0 }] }));
+  const updateSplitRow = (i, patch) => setForm((f) => ({ ...f, gst_split: (f.gst_split || []).map((r, idx) => idx === i ? { ...r, ...patch } : r) }));
+  const removeSplitRow = (i) => setForm((f) => ({ ...f, gst_split: (f.gst_split || []).filter((_, idx) => idx !== i) }));
+  const autoFillFromInclusions = () => {
+    // Split the price equally across current gst_split lines that have empty amount, or across all if empty
+    let rows = form.gst_split || [];
+    if (rows.length === 0) {
+      const items = (typeof form.inclusions === "string" ? form.inclusions.split(",") : form.inclusions || []).map((s) => s.trim()).filter(Boolean);
+      rows = items.slice(0, 6).map((label) => ({ label, category: "activity", amount: 0 }));
+    }
+    if (rows.length === 0) return toast.error("Add inclusions or add a row first");
+    const per = Math.floor((+form.price || 0) / rows.length);
+    const remainder = (+form.price || 0) - per * rows.length;
+    const next = rows.map((r, i) => ({ ...r, amount: per + (i === 0 ? remainder : 0) }));
+    setForm((f) => ({ ...f, gst_split: next }));
+  };
 
   return (
     <div>
@@ -107,11 +147,23 @@ export default function Packages() {
                             <span className="ml-2 text-sm line-through text-foreground/50">{inr(p.price)}</span>
                           </div>
                         ) : <span className={`text-4xl font-black ${t.accent}`}>{inr(p.price)}</span>}
-                        {(p.food_portion > 0 || p.activity_portion > 0) && (
-                          <div className="text-[10px] uppercase tracking-widest font-black text-foreground/60 mt-1">
-                            GST: Food ₹{p.food_portion || 0} @5% · Activity ₹{p.activity_portion || 0} @18%
-                          </div>
-                        )}
+                        {(() => {
+                          // Prefer new gst_split, fall back to legacy portions
+                          let split = Array.isArray(p.gst_split) && p.gst_split.length ? p.gst_split : [];
+                          if (split.length === 0 && ((p.food_portion || 0) + (p.activity_portion || 0) > 0)) {
+                            split = [];
+                            if (p.food_portion > 0) split.push({ category: "food", amount: p.food_portion });
+                            if (p.activity_portion > 0) split.push({ category: "activity", amount: p.activity_portion });
+                          }
+                          if (split.length === 0) return null;
+                          return (
+                            <div className="text-[10px] uppercase tracking-widest font-black text-foreground/60 mt-1 space-y-0.5">
+                              {split.map((s, i) => (
+                                <div key={i}>· {s.label || s.category} ₹{s.amount} @{rateFor(s.category)}%</div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                       {isAdmin && (
                         <div className="flex gap-1">
@@ -161,29 +213,62 @@ export default function Packages() {
               <div><Label>Offer Price ₹</Label><Input type="number" data-testid="pkg-offer" value={form.offer_price || ""} onChange={(e) => setForm({ ...form, offer_price: e.target.value })} /></div>
             </div>
             <div><Label>Inclusions (comma separated)</Label><Textarea data-testid="pkg-incl" value={form.inclusions} onChange={(e) => setForm({ ...form, inclusions: e.target.value })} placeholder="Cake, Decoration, Unlimited games..." /></div>
-            <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs uppercase tracking-widest font-black">GST split (Indian compliance)</Label>
-                <span className="text-[10px] font-bold text-muted-foreground">Food 5% · Activity 18%</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Food portion ₹ (5% GST)</Label>
-                  <Input type="number" data-testid="pkg-food-portion" value={form.food_portion || ""} onChange={(e) => setForm({ ...form, food_portion: e.target.value })} placeholder="e.g. 800" />
-                </div>
-                <div>
-                  <Label>Activity portion ₹ (18% GST)</Label>
-                  <Input type="number" data-testid="pkg-act-portion" value={form.activity_portion || ""} onChange={(e) => setForm({ ...form, activity_portion: e.target.value })} placeholder="e.g. 1200" />
+            <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3" data-testid="pkg-gst-split-card">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <Label className="text-xs uppercase tracking-widest font-black">GST Split (invoice pe alag-alag lines)</Label>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={autoFillFromInclusions} className="h-8 text-xs" data-testid="pkg-autofill-btn">Auto-fill from inclusions</Button>
+                  <Button type="button" size="sm" onClick={addSplitRow} className="h-8 text-xs bg-accent hover:bg-accent/90" data-testid="pkg-add-split-btn"><Plus className="h-3 w-3 mr-1" /> Add line</Button>
                 </div>
               </div>
-              <div className="text-xs text-muted-foreground">
-                Food + Activity total = Package price. Blank rakhoge to full price 18% activity treat hoga.
-                {(+form.food_portion || 0) + (+form.activity_portion || 0) > 0 && (
-                  <span className={`ml-2 font-bold ${Math.abs((+form.food_portion || 0) + (+form.activity_portion || 0) - (+form.price || 0)) < 0.5 ? "text-emerald-600" : "text-destructive"}`}>
-                    Sum: ₹{(+form.food_portion || 0) + (+form.activity_portion || 0)} / ₹{+form.price || 0}
-                  </span>
-                )}
+              <div className="text-[11px] text-muted-foreground">
+                Har line pe alag GST auto lagegi — Food 5%, Activity/Games 18%, Room 12%, Clothing 12%. Invoice ek hi banega but har chiz alag column me GST breakup ke saath aayegi. Empty rakhoge to poora price 18% activity ho jayega.
               </div>
+              {(form.gst_split || []).length === 0 ? (
+                <div className="text-xs text-muted-foreground italic text-center py-2">Koi split nahi. "Add line" pe click karo (e.g. Games ₹1200, Food ₹800).</div>
+              ) : (
+                <div className="space-y-2">
+                  {(form.gst_split || []).map((row, i) => {
+                    const rate = rateFor(row.category);
+                    return (
+                      <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`pkg-split-row-${i}`}>
+                        <div className="col-span-4">
+                          <Input data-testid={`pkg-split-label-${i}`} placeholder="Label (e.g. Games)" value={row.label} onChange={(e) => updateSplitRow(i, { label: e.target.value })} className="h-9 text-sm" />
+                        </div>
+                        <div className="col-span-4">
+                          <select
+                            data-testid={`pkg-split-cat-${i}`}
+                            value={row.category}
+                            onChange={(e) => updateSplitRow(i, { category: e.target.value })}
+                            className="w-full h-9 rounded-md border border-input bg-background px-2 text-sm"
+                          >
+                            {CAT_OPTIONS.map((c) => <option key={c.v} value={c.v}>{c.label} ({c.rate}%)</option>)}
+                          </select>
+                        </div>
+                        <div className="col-span-3">
+                          <Input data-testid={`pkg-split-amt-${i}`} type="number" placeholder="₹" value={row.amount || ""} onChange={(e) => updateSplitRow(i, { amount: e.target.value })} className="h-9 text-sm" />
+                        </div>
+                        <button type="button" onClick={() => removeSplitRow(i)} className="col-span-1 h-9 rounded-md hover:bg-destructive/10 text-destructive flex items-center justify-center" data-testid={`pkg-split-remove-${i}`}>
+                          <XIcon className="h-4 w-4" />
+                        </button>
+                        <div className="col-span-12 -mt-1 text-[10px] text-muted-foreground pl-1">
+                          GST @{rate}% on ₹{+row.amount || 0} = ₹{((+row.amount || 0) * rate / 100).toFixed(2)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {(() => {
+                    const sum = (form.gst_split || []).reduce((s, r) => s + (+r.amount || 0), 0);
+                    const ok = Math.abs(sum - (+form.price || 0)) < 0.5;
+                    return (
+                      <div className={`text-xs font-black flex items-center justify-between p-2 rounded-lg ${ok ? "bg-emerald-50 text-emerald-700" : "bg-destructive/10 text-destructive"}`} data-testid="pkg-split-sum">
+                        <span>Split sum: ₹{sum.toFixed(2)}</span>
+                        <span>Package price: ₹{(+form.price || 0).toFixed(2)}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
             <div><Label>Description</Label><Textarea data-testid="pkg-desc" value={form.description || ""} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
             <div className="flex items-center justify-between p-3 bg-muted rounded-xl">

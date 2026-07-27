@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, inr } from "@/lib/api";
 import QRCode from "react-qr-code";
+import UpiPayBlock from "@/components/UpiPayBlock";
 
 export default function PrintBill() {
   const { id } = useParams();
@@ -120,6 +121,9 @@ export default function PrintBill() {
         <div className="text-center text-[10px] mt-3 border-t border-dashed border-black pt-2">
           Thank you for visiting!<br/>Visit again 🎡
         </div>
+        {(settings?.upi_qr_url || settings?.upi_id) && bill.payment_status !== "paid" && (
+          <UpiPayBlock settings={settings} amount={bill.total} note={`Bill ${bill.bill_no}`} variant="print" />
+        )}
         {settings?.google_review_url && (
           <div className="mt-3 border-t border-dashed border-black pt-2 text-center">
             <div className="text-[10px] font-bold mb-1">⭐ Rate us on Google ⭐</div>

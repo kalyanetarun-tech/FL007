@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import QRCode from "react-qr-code";
 import { toast } from "sonner";
 import { Receipt, Send, Printer, MessageCircle, Mail, Phone, ExternalLink } from "lucide-react";
+import UpiPayBlock from "@/components/UpiPayBlock";
 
 export function BillsList() {
   const [bills, setBills] = useState(null);
@@ -169,21 +170,16 @@ export function BillDetail() {
           <Card className="p-5 rounded-2xl">
             <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">Pay Now</div>
             {bill.razorpay_link ? (
-              <a href={bill.razorpay_link} target="_blank" rel="noreferrer" className="block p-4 border-2 border-accent rounded-xl text-center font-bold hover:bg-accent hover:text-accent-foreground transition-colors" data-testid="rzp-link">
+              <a href={bill.razorpay_link} target="_blank" rel="noreferrer" className="block p-4 border-2 border-accent rounded-xl text-center font-bold hover:bg-accent hover:text-accent-foreground transition-colors mb-3" data-testid="rzp-link">
                 Pay via Razorpay <ExternalLink className="inline h-4 w-4" />
               </a>
             ) : bill.payment_method === "razorpay" ? (
-              <div className="p-4 border border-border rounded-xl text-sm text-muted-foreground">Razorpay not configured. Add keys in .env.</div>
+              <div className="p-4 border border-border rounded-xl text-sm text-muted-foreground mb-3">Razorpay not configured. Add keys in .env.</div>
             ) : null}
-            {settingsSafe.upi_qr_url && (
-              <div className="mt-3">
-                <div className="text-xs uppercase tracking-widest font-bold text-muted-foreground mb-2">Scan to Pay (GPay / Paytm / UPI)</div>
-                <img src={settingsSafe.upi_qr_url} alt="UPI QR" className="w-full rounded-xl border border-border" />
-                {settingsSafe.upi_id && <div className="text-center mt-2 text-sm font-bold">UPI: {settingsSafe.upi_id}</div>}
-              </div>
-            )}
-            {!settingsSafe.upi_qr_url && !bill.razorpay_link && (
-              <div className="text-sm text-muted-foreground">Configure UPI QR in Settings to display here.</div>
+            {(settingsSafe.upi_qr_url || settingsSafe.upi_id) ? (
+              <UpiPayBlock settings={settingsSafe} amount={bill.total} note={`Bill ${bill.bill_no}`} />
+            ) : (
+              !bill.razorpay_link && <div className="text-sm text-muted-foreground">Configure UPI QR in Settings to display here.</div>
             )}
           </Card>
 

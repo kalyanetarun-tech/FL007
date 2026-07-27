@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast, Toaster } from "sonner";
+import UpiPayBlock from "@/components/UpiPayBlock";
 import { copyToClipboard } from "@/lib/clipboard";
 import { Loader2, Gamepad2, PartyPopper, Plus, Minus, X, Calendar, Users, CheckCircle2, ExternalLink, Copy } from "lucide-react";
 
@@ -215,16 +216,11 @@ export function PublicBookConfirm() {
               Pay ₹{b.total} via Razorpay <ExternalLink className="inline h-4 w-4 ml-1" />
             </a>
           )}
-          {park.upi_qr_url && (
-            <div className="text-center">
-              <div className="text-xs uppercase tracking-widest font-bold text-muted-foreground mb-2">Scan with GPay / Paytm / any UPI app</div>
-              <img src={park.upi_qr_url} alt="UPI QR" className="max-w-[260px] mx-auto rounded-xl border border-border" />
-              {park.upi_id && <div className="mt-2 font-bold">UPI: {park.upi_id}</div>}
-            </div>
-          )}
-          {!b.razorpay_link && !park.upi_qr_url && (
+          {(park.upi_qr_url || park.upi_id) ? (
+            <UpiPayBlock settings={park} amount={b.total} note={`Booking ${b.bill_no || b.id}`} />
+          ) : (!b.razorpay_link && (
             <div className="text-sm text-muted-foreground text-center py-4">Payment options will be shared on WhatsApp shortly.</div>
-          )}
+          ))}
           <div className="text-xs text-muted-foreground text-center mt-4">Payment ke baad park pe aake booking dikha do — direct entry milegi</div>
         </Card>
 

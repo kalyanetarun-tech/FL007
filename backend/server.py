@@ -124,6 +124,13 @@ class GameIn(BaseModel):
     gst_category: Literal["food", "activity", "goods"] = "activity"  # food=5%, activity=18%, goods=18%
     hsn_code: Optional[str] = ""  # HSN/SAC — e.g. 999721 (amusement), 996331 (food)
 
+class PackageSplitLine(BaseModel):
+    label: str                       # user-facing name shown on invoice
+    category: Literal["food", "activity", "room", "clothing", "merchandise", "other"] = "activity"
+    amount: float                    # ₹ portion of the package attributable to this line
+    gst_percent: Optional[float] = None  # override auto rate if needed
+    hsn_code: Optional[str] = ""
+
 class PackageIn(BaseModel):
     name: str
     type: Literal["birthday", "party", "group", "other"] = "birthday"
@@ -134,12 +141,13 @@ class PackageIn(BaseModel):
     inclusions: List[str] = []
     description: Optional[str] = ""
     active: bool = True
-    # GST split — package price = food_portion (5%) + activity_portion (18%)
-    # If both 0, entire price is treated as activity_portion.
+    # NEW — arbitrary breakup lines with their own GST (activity/food/rooms/clothing/other)
+    gst_split: List[PackageSplitLine] = []
+    # LEGACY — kept for backward compat; auto-migrated to gst_split at bill time
     food_portion: float = 0
     activity_portion: float = 0
-    hsn_food: Optional[str] = "996331"       # restaurant / catering
-    hsn_activity: Optional[str] = "999721"   # amusement / recreation
+    hsn_food: Optional[str] = "996331"
+    hsn_activity: Optional[str] = "999721"
 
 class InquiryIn(BaseModel):
     name: str
@@ -520,89 +528,224 @@ async def download_inquiry_template(user: dict = Depends(get_current_user)):
 
 @api.post("/inquiries/import")
 async def import_inquiries_xlsx(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    """Bulk import inquiries from an .xlsx file. Same column order as the export endpoint."""
+    """Bulk import inquiries from ANY .xlsx file — very lenient.
+    We auto-detect Name and Phone columns from common aliases (English + Hindi).
+    If header is missing or weird, we scan every row and pluck the first phone-like
+    cell + the first text cell for name. Phone with no name → 'Unknown'."""
     from openpyxl import load_workbook
     from io import BytesIO
-    if not (file.filename or "").lower().endswith((".xlsx", ".xls")):
+    import re
+
+    if not (file.filename or "").lower().endswith((".xlsx", ".xls", ".xlsm")):
         raise HTTPException(400, "Please upload an .xlsx file")
     content = await file.read()
     try:
         wb = load_workbook(BytesIO(content), data_only=True)
     except Exception as e:
         raise HTTPException(400, f"Cannot read spreadsheet: {e}")
-    ws = wb.active
-    rows_iter = ws.iter_rows(values_only=True)
-    header = next(rows_iter, None)
-    if not header:
-        raise HTTPException(400, "Spreadsheet is empty")
-
-    # Map header (case-insensitive, trimmed) to expected column index
-    norm = [str(h or "").strip().lower() for h in header]
-    def col(name: str):
-        try: return norm.index(name.lower())
-        except ValueError: return -1
-    idx = {k: col(k) for k in INQUIRY_XLSX_COLUMNS}
-    if idx["Name"] < 0 or idx["Phone"] < 0:
-        raise HTTPException(400, "Required columns missing: Name, Phone")
 
     valid_sources = {"walk-in", "phone", "instagram", "facebook", "whatsapp", "referral", "other"}
     valid_status = {"new", "contacted", "converted", "lost"}
 
-    inserted = 0
-    skipped = 0
+    NAME_ALIASES   = {"name", "customer", "customer name", "cust name", "full name", "guest name", "guest", "party", "client", "person", "नाम", "ग्राहक", "customer_name"}
+    PHONE_ALIASES  = {"phone", "mobile", "mob", "mobile no", "mobile number", "contact", "contact no", "phone no", "number", "no", "no.", "cell", "whatsapp", "wa", "फोन", "मोबाइल", "नंबर", "phone_number", "mobile_number"}
+    EMAIL_ALIASES  = {"email", "e-mail", "mail", "email id", "email_id"}
+    SOURCE_ALIASES = {"source", "channel", "from", "via", "platform"}
+    INTEREST_ALIASES = {"interest", "package", "requirement", "for", "purpose", "event"}
+    NOTES_ALIASES  = {"notes", "note", "remark", "remarks", "comment", "comments", "message", "msg", "detail", "description"}
+    FOLLOWUP_ALIASES = {"follow up", "follow-up", "followup", "follow up date", "next follow up", "date", "follow_up_date"}
+    STATUS_ALIASES = {"status", "stage", "state"}
+    ASSIGNED_ALIASES = {"assigned to", "assignee", "assigned", "owner", "executive", "sales", "staff"}
+
+    def norm(v):
+        return str(v).strip().lower() if v is not None else ""
+
+    def phone_from(cell) -> str:
+        """Return normalised phone number if the cell looks like one, else empty."""
+        if cell is None:
+            return ""
+        s = str(cell).strip()
+        if not s:
+            return ""
+        # Excel may hand us floats for numeric cells (e.g. 9.876543E9)
+        if isinstance(cell, float) and cell.is_integer():
+            s = str(int(cell))
+        # keep only digits
+        digits = re.sub(r"\D", "", s)
+        if 10 <= len(digits) <= 14:
+            # Strip country prefix
+            if len(digits) > 10 and digits.startswith("91"):
+                digits = digits[-10:]
+            if len(digits) == 10 and digits[0] in "6789":
+                return digits
+        return ""
+
+    def looks_like_name(s: str) -> bool:
+        if not s: return False
+        s = s.strip()
+        if len(s) < 2 or len(s) > 80: return False
+        # reject pure numeric / phone-looking / status / email / date
+        if re.fullmatch(r"[\d\s\-\+\(\)]+", s): return False
+        if "@" in s: return False
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s): return False
+        low = s.lower()
+        if low in valid_status or low in valid_sources: return False
+        return True
+
+    total_inserted = 0
+    total_skipped = 0
     errors: List[str] = []
-    for row_no, row in enumerate(rows_iter, start=2):
-        try:
-            def v(k, default=""):
-                i = idx.get(k, -1)
-                if i < 0 or i >= len(row): return default
-                val = row[i]
-                if val is None: return default
-                return str(val).strip()
-            name = v("Name")
-            phone = v("Phone")
-            if not name and not phone:
-                skipped += 1
-                continue
-            source = v("Source", "other").lower().replace(" ", "-")
-            if source not in valid_sources:
-                source = "other"
-            status_val = v("Status", "new").lower()
-            if status_val not in valid_status:
-                status_val = "new"
-            assignee_name = v("Assigned To")
-            assignee_doc = None
-            if assignee_name:
-                assignee_doc = await db.users.find_one({"name": assignee_name}, {"_id": 0, "id": 1, "name": 1})
-            if not assignee_doc:
-                assignee_doc = await _pick_next_marketing_exec()
-            doc = {
-                "id": new_id(),
-                "name": name or "Unknown",
-                "phone": phone,
-                "email": v("Email"),
-                "source": source,
-                "interest": v("Interest"),
-                "notes": v("Notes"),
-                "follow_up_date": v("Follow Up Date") or None,
-                "status": status_val,
-                "remarks": [],
-                "assigned_to": (assignee_doc or {}).get("id"),
-                "assigned_to_name": (assignee_doc or {}).get("name"),
-                "created_by": user["id"],
-                "created_by_name": user["name"] + " (import)",
-                "created_at": now_iso(),
-            }
-            await db.inquiries.insert_one(doc)
-            inserted += 1
-        except Exception as e:
-            errors.append(f"Row {row_no}: {e}")
-    return {"ok": True, "inserted": inserted, "skipped": skipped, "errors": errors[:20]}
+
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+
+        # -------- Detect header row (may not be row 0) --------
+        header_idx = -1
+        idx_map = {"name": -1, "phone": -1, "email": -1, "source": -1, "interest": -1, "notes": -1, "follow_up_date": -1, "status": -1, "assigned_to": -1}
+
+        for hi, row in enumerate(rows[:5]):  # search first 5 rows
+            cells = [norm(c) for c in row]
+            hit_name = any(c in NAME_ALIASES for c in cells)
+            hit_phone = any(c in PHONE_ALIASES for c in cells)
+            if hit_name or hit_phone:
+                header_idx = hi
+                for ci, c in enumerate(cells):
+                    if c in NAME_ALIASES and idx_map["name"] < 0: idx_map["name"] = ci
+                    elif c in PHONE_ALIASES and idx_map["phone"] < 0: idx_map["phone"] = ci
+                    elif c in EMAIL_ALIASES and idx_map["email"] < 0: idx_map["email"] = ci
+                    elif c in SOURCE_ALIASES and idx_map["source"] < 0: idx_map["source"] = ci
+                    elif c in INTEREST_ALIASES and idx_map["interest"] < 0: idx_map["interest"] = ci
+                    elif c in NOTES_ALIASES and idx_map["notes"] < 0: idx_map["notes"] = ci
+                    elif c in FOLLOWUP_ALIASES and idx_map["follow_up_date"] < 0: idx_map["follow_up_date"] = ci
+                    elif c in STATUS_ALIASES and idx_map["status"] < 0: idx_map["status"] = ci
+                    elif c in ASSIGNED_ALIASES and idx_map["assigned_to"] < 0: idx_map["assigned_to"] = ci
+                break
+
+        data_rows = rows[header_idx + 1:] if header_idx >= 0 else rows
+
+        for row_no, row in enumerate(data_rows, start=(header_idx + 2 if header_idx >= 0 else 1)):
+            try:
+                if not row or all(c is None or str(c).strip() == "" for c in row):
+                    continue
+
+                # ----- Extract name & phone with fallback scanning -----
+                name = ""
+                phone = ""
+
+                if idx_map["name"] >= 0 and idx_map["name"] < len(row):
+                    v = row[idx_map["name"]]
+                    if v is not None and str(v).strip():
+                        name = str(v).strip()
+
+                if idx_map["phone"] >= 0 and idx_map["phone"] < len(row):
+                    phone = phone_from(row[idx_map["phone"]])
+
+                # Fallback: scan every cell for a phone-shaped value
+                if not phone:
+                    for c in row:
+                        p = phone_from(c)
+                        if p:
+                            phone = p
+                            break
+
+                # Fallback: pick the first name-like text cell (not the phone cell)
+                if not name:
+                    for ci, c in enumerate(row):
+                        if c is None: continue
+                        s = str(c).strip()
+                        if not s: continue
+                        if s == phone or phone_from(c): continue
+                        if looks_like_name(s):
+                            name = s
+                            break
+
+                if not phone and not name:
+                    total_skipped += 1
+                    continue
+
+                if not name:
+                    name = "Unknown"
+
+                # ----- Optional fields -----
+                def cell(k):
+                    i = idx_map.get(k, -1)
+                    if i < 0 or i >= len(row): return ""
+                    v = row[i]
+                    return str(v).strip() if v is not None else ""
+
+                email = cell("email")
+                if email and "@" not in email:
+                    # scan any other cell for a valid-ish email
+                    for c in row:
+                        if c and "@" in str(c):
+                            email = str(c).strip(); break
+
+                source = cell("source").lower().replace(" ", "-") or "other"
+                if source not in valid_sources:
+                    # allow "insta" → instagram etc
+                    if source.startswith("insta"): source = "instagram"
+                    elif source.startswith("face") or source == "fb": source = "facebook"
+                    elif source.startswith("what") or source == "wa": source = "whatsapp"
+                    elif source in {"walkin", "walk_in"}: source = "walk-in"
+                    else: source = "other"
+
+                status_val = cell("status").lower() or "new"
+                if status_val not in valid_status:
+                    status_val = "new"
+
+                assignee_name = cell("assigned_to")
+                assignee_doc = None
+                if assignee_name:
+                    assignee_doc = await db.users.find_one({"name": assignee_name}, {"_id": 0, "id": 1, "name": 1})
+                if not assignee_doc:
+                    assignee_doc = await _pick_next_marketing_exec()
+
+                doc = {
+                    "id": new_id(),
+                    "name": name,
+                    "phone": phone,
+                    "email": email,
+                    "source": source,
+                    "interest": cell("interest"),
+                    "notes": cell("notes"),
+                    "follow_up_date": cell("follow_up_date") or None,
+                    "status": status_val,
+                    "remarks": [],
+                    "assigned_to": (assignee_doc or {}).get("id"),
+                    "assigned_to_name": (assignee_doc or {}).get("name"),
+                    "created_by": user["id"],
+                    "created_by_name": user["name"] + " (import)",
+                    "created_at": now_iso(),
+                }
+                await db.inquiries.insert_one(doc)
+                total_inserted += 1
+            except Exception as e:
+                errors.append(f"{ws.title} row {row_no}: {e}")
+
+    return {"ok": True, "inserted": total_inserted, "skipped": total_skipped, "errors": errors[:20]}
 
 # ---------------- Bills / Visits ----------------
 # ---------------- GST helpers (Indian compliance) ----------------
-GST_RATE_BY_CATEGORY = {"food": 5.0, "activity": 18.0, "goods": 18.0}
-HSN_BY_CATEGORY = {"food": "996331", "activity": "999721", "goods": "999721"}
+GST_RATE_BY_CATEGORY = {
+    "food": 5.0,          # restaurant / catering
+    "activity": 18.0,     # amusement / rides
+    "goods": 18.0,        # generic goods
+    "room": 12.0,         # hotel room < 7500/night
+    "clothing": 12.0,     # apparel > 1000
+    "merchandise": 18.0,  # merchandise
+    "other": 18.0,
+}
+HSN_BY_CATEGORY = {
+    "food": "996331",
+    "activity": "999721",
+    "goods": "999799",
+    "room": "996311",
+    "clothing": "6109",
+    "merchandise": "999799",
+    "other": "999799",
+}
 
 def _resolve_line_gst(it: dict) -> (float, str, str):
     """Return (rate, hsn, category) for a bill line, filling from category/kind if missing."""
@@ -708,29 +851,33 @@ async def create_bill(data: BillIn, user: dict = Depends(get_current_user)):
     for it in raw_items:
         if it["kind"] == "package" and it.get("ref_id") and it["ref_id"] in pkgs:
             p = pkgs[it["ref_id"]]
-            fp = float(p.get("food_portion") or 0)
-            ap = float(p.get("activity_portion") or 0)
-            if fp > 0 and ap > 0:
-                # Split into 2 GST lines
-                expanded.append({
-                    "kind": "package", "ref_id": it["ref_id"],
-                    "name": f"{it['name']} · Food",
-                    "price": round(fp, 2), "qty": it.get("qty", 1),
-                    "gst_percent": 5.0, "category": "food",
-                    "hsn_code": p.get("hsn_food") or HSN_BY_CATEGORY["food"],
-                })
-                expanded.append({
-                    "kind": "package", "ref_id": it["ref_id"],
-                    "name": f"{it['name']} · Activity",
-                    "price": round(ap, 2), "qty": it.get("qty", 1),
-                    "gst_percent": 18.0, "category": "activity",
-                    "hsn_code": p.get("hsn_activity") or HSN_BY_CATEGORY["activity"],
-                })
+            qty = it.get("qty", 1)
+            splits = list(p.get("gst_split") or [])
+            # Legacy migration: food_portion + activity_portion → 2-line split
+            if not splits:
+                fp = float(p.get("food_portion") or 0)
+                ap = float(p.get("activity_portion") or 0)
+                if fp > 0:
+                    splits.append({"label": "Food", "category": "food", "amount": fp, "hsn_code": p.get("hsn_food")})
+                if ap > 0:
+                    splits.append({"label": "Activity", "category": "activity", "amount": ap, "hsn_code": p.get("hsn_activity")})
+            if splits:
+                for s in splits:
+                    cat = (s.get("category") or "activity").lower()
+                    rate = float(s.get("gst_percent") or GST_RATE_BY_CATEGORY.get(cat, 18.0))
+                    hsn = s.get("hsn_code") or HSN_BY_CATEGORY.get(cat, "999721")
+                    expanded.append({
+                        "kind": "package", "ref_id": it["ref_id"],
+                        "name": f"{it['name']} · {s.get('label') or cat.title()}",
+                        "price": round(float(s.get("amount") or 0), 2),
+                        "qty": qty,
+                        "gst_percent": rate, "category": cat, "hsn_code": hsn,
+                    })
                 continue
-            # Single-category package (or unsplit) — default to activity 18%
+            # Fallback — single-category package (default activity 18%)
             it["gst_percent"] = it.get("gst_percent") or 18.0
             it["category"] = it.get("category") or "activity"
-            it["hsn_code"] = it.get("hsn_code") or (p.get("hsn_activity") or HSN_BY_CATEGORY["activity"])
+            it["hsn_code"] = it.get("hsn_code") or HSN_BY_CATEGORY["activity"]
             expanded.append(it)
         elif it["kind"] == "game" and it.get("ref_id") and it["ref_id"] in games:
             g = games[it["ref_id"]]
