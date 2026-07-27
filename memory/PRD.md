@@ -83,18 +83,23 @@ Added later:
 5. When ready for social auto-sync, apply for Meta Business API access
 
 ## Changelog
-### 2026-07-27 — Indian GST compliance + Inquiries Excel import/export
-- **GST-compliant tax invoice** across bills & packages: Food 5%, Activities 18%, per-item HSN/SAC codes, CGST+SGST for intra-state, IGST for inter-state
-- Bills now store a `gst_breakup` (per-rate taxable/CGST/SGST/IGST/total), `customer_gstin`, `customer_state_code`, and auto-detect `is_interstate`
-- Games get a `gst_category` (food/activity/goods) → GST rate + default HSN auto-applied at billing
-- Packages get `food_portion` + `activity_portion` inputs — a package on a bill **auto-splits into two lines** (food@5% + activity@18%)
-- Settings has a new **GST / Tax Invoice details** card: `firm_name`, `firm_gstin`, `firm_state_code`, `firm_pan`, `firm_fssai`, `invoice_prefix`
-- Print receipt (`/bills/:id/print`) now renders a full-format tax invoice: firm GSTIN/FSSAI header, customer GSTIN + state, HSN column per line, GST breakup table
-- **Inquiries Excel**: `Import Excel` / `Export` / `Template` buttons with `/api/inquiries/export.xlsx`, `/api/inquiries/template.xlsx`, and `POST /api/inquiries/import` (multipart). Round-trip verified.
-- Tests: `/app/backend/tests/test_gst_compliance.py` (16/16 pass) + Playwright UI smoke on 5 pages + 2 file downloads
+### 2026-07-27 (v3) — Multi-category package split · UPI everywhere · Lenient Excel import
+- **Package GST split** upgraded from 2-category (food/activity) to a **dynamic list of any GST categories**: Activity/Games 18%, Food 5%, Room/Stay 12%, Clothing 12%, Merchandise 18%, Other 18%. Autofill button splits equally from inclusions. Each package can have unlimited split lines; auto-expands into that many invoice lines with correct GST + HSN.
+- **UPI QR block everywhere** — new reusable `UpiPayBlock` (full/compact/print variants) rendered on: New Visit (when payment method = UPI QR), Bill Detail Pay Now card, Print Bill (for pending bills), Public Pre-booking checkout. Prefers uploaded QR image, falls back to live-generated UPI intent QR. Copy-to-clipboard for UPI ID, "Open in UPI App" deep link.
+- **Inquiries Excel import made super-lenient** — accepts any format:
+  - Detects Name/Phone columns via English + Hindi aliases (नाम, मोबाइल, contact, mob, customer, guest, etc.)
+  - Falls back to whole-row scanning if header is missing / weird
+  - Auto-normalises phone: strips +91, handles floats, keeps 10 digits
+  - Rows with phone but no name → `name = "Unknown"`
+  - Skips junk rows before real header (up to row 5)
+  - Source shortcuts (`insta`, `fb`, `wa`, `walkin`) auto-normalised
+  - Never returns 400 on a valid xlsx — imports whatever it can
+
+### 2026-07-27 — Indian GST compliance + Inquiries Excel v1
+- GST-compliant tax invoice across bills & packages: Food 5%, Activities 18%, per-item HSN/SAC, CGST+SGST intra-state, IGST inter-state
+- `customer_gstin`, `customer_state_code` on bills; auto `is_interstate` detection
+- Game GST category selector; Settings GST/Tax Invoice details (firm_name, firm_gstin, firm_state_code, firm_pan, firm_fssai, invoice_prefix)
+- Inquiries: Import Excel / Export / Template buttons
 
 ### 2026-07-26 — Dashboard "Sales Mix" upgrade
-- Removed "Popular rides" leaderboard card from Dashboard
-- Added `Packages Sold` and `Games/Activities Played` cards driven by the same date-range filter as the analytics panel
-- Backend `/api/dashboard/stats` + `/api/dashboard/analytics` now return `total_packages_sold`, `total_games_played`, `packages_revenue`, `games_revenue`, `top_packages`, and per-bucket `packages_sold` / `games_played` in the trend
-- New stacked bar chart shows Packages vs Games volume per bucket, plus Top-3 packages and Top-3 games lists
+- Removed "Popular rides" card; added Packages Sold + Games/Activities Played metric cards driven by the analytics date-range; new stacked bar chart; Top-3 packages/games lists
