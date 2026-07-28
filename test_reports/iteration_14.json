@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 14: Full test of Marketing Team Report + Fair-Share round-robin. 18/18 backend pytest cases pass (presets today/week/month/year/all, custom range label, executive field shape, per-exec + totals conversion_rate calc, .xlsx headers/PK-bytes/size, fair-share distribution across 2+ execs, remarks/avg_response fields, regression: dashboard stats/analytics, inquiries/packages/bills/settings/auth/me). Frontend /marketing renders both tabs, all 6 presets, 4 KPI cards, exec-leaderboard, exec-bar-chart, custom-from/to date inputs, and report-download / report-share-wa / report-share-native buttons. Excel download response verified with correct content-type + Content-Disposition attachment header. Custom range correctly triggers /api/marketing/report?from=...&to=... call. Campaigns tab regression OK (mk-title etc still present).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/inquiries/webhook/{source}", "issue": "Response returns `assigned_to` set to the exec NAME (from doc.assigned_to_name), while the stored DB field `assigned_to` holds the exec ID. API contract is inconsistent/misleading — same key name means different things in response vs storage."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Custom date range", "issue": "The report is re-fetched immediately on each keystroke in the date inputs, causing calls with empty/partial `to` param (e.g. `from=2026-06-01&to=`). Consider debouncing or waiting until both fields are non-empty before firing the request.", "affected_selectors": ["[data-testid=custom-from]", "[data-testid=custom-to]"]},
+      {"flow": "WhatsApp share", "issue": "Popup URL text begins with `%EF%BF%BD` (Unicode replacement character U+FFFD), suggesting an emoji/character was mangled during string construction of the share text. Cosmetic but visible in WhatsApp preview.", "affected_selectors": ["[data-testid=report-share-wa]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter14_marketing_report_fair_share.py",
+    "/app/test_reports/pytest/iter14.xml"
+  ],
+  "action_items": [
+    "(Optional) Align webhook response `assigned_to` semantics — either return the ID (matching DB) or rename response field to `assigned_to_name` for clarity.",
+    "(Optional) Debounce custom date inputs on /marketing so /api/marketing/report is only called when both from and to are set.",
+    "(Optional) Fix corrupted emoji in report-share-wa share text (replacement char at start)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2028 lines — should be split into routers (auth/users/inquiries/marketing/bills/settings).",
+    "Custom range parser uses Mongo string compare on ISO created_at — works because timestamps are `YYYY-MM-DDTHH:MM:SS…` lexicographic; keep in mind if created_at format ever changes.",
+    "Report endpoint loads up to 50000 inquiries into memory — fine for MVP but should be aggregated in Mongo for scale.",
+    "_pick_next_marketing_exec correctly uses least-loaded + rr counter tiebreaker; verified with 2 execs — 6 webhooks distributed evenly (3 each)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter14_marketing_report_fair_share.py (new)"
+  ],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% of tested elements present + wired"},
+  "test_credentials": "admin@funland.in / Funland@123",
+  "seed_data_creation": "Created 2 test marketing execs (TEST_FS_Exec_1, TEST_FS_Exec_2) to validate fair-share; created 6 test inquiries + 1 remark inquiry (inquiries cleaned up in-test; test exec users remain — main agent may want to purge them if noise is a concern).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest file test_iter14_marketing_report_fair_share.py is a good regression baseline for /marketing/report + report.xlsx + webhook fair-share. Note webhook response `assigned_to` key returns the NAME not the ID — always fetch from /api/inquiries to get real assigned_to (which is exec.id).",
+  "rca of the issue": "No blocker RCAs — all backend & frontend flows work. Only cosmetic issue on WA share text emoji encoding (U+FFFD)."
+}

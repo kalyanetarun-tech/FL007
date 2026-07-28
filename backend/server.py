@@ -370,15 +370,32 @@ async def list_inquiries(user: dict = Depends(get_current_user)):
 
 # Webhook endpoint - accepts inquiries from external sources (WhatsApp/Twilio, Meta, Zapier, etc.)
 async def _pick_next_marketing_exec() -> Optional[dict]:
-    """Round-robin pick next marketing executive."""
+    """Fair-share pick — chooses the marketing exec who currently has the FEWEST OPEN inquiries.
+    Ties are broken by fewest total assigned all-time (so newer joiners catch up),
+    then finally by round-robin counter for stability."""
     execs = await db.users.find({"is_marketing_exec": True}, {"_id": 0, "id": 1, "name": 1}).sort("name", 1).to_list(100)
     if not execs:
         return None
+    # Open inquiries per exec (new + contacted)
+    open_counts = {e["id"]: 0 for e in execs}
+    total_counts = {e["id"]: 0 for e in execs}
+    async for row in db.inquiries.aggregate([
+        {"$match": {"assigned_to": {"$in": [e["id"] for e in execs]}}},
+        {"$group": {"_id": {"a": "$assigned_to", "s": "$status"}, "n": {"$sum": 1}}},
+    ]):
+        rid = row["_id"]["a"]
+        st = row["_id"]["s"]
+        total_counts[rid] = total_counts.get(rid, 0) + row["n"]
+        if st in ("new", "contacted"):
+            open_counts[rid] = open_counts.get(rid, 0) + row["n"]
+    # Increment RR counter (used as tie-breaker for deterministic distribution)
     counter_doc = await db.counters.find_one_and_update(
         {"id": "rr_marketing"}, {"$inc": {"v": 1}}, upsert=True, return_document=True
     )
-    idx = ((counter_doc or {}).get("v", 0) - 1) % len(execs)
-    return execs[max(idx, 0)]
+    rr_idx = ((counter_doc or {}).get("v", 0) - 1) % len(execs)
+    # Sort: least open first, then least total, then round-robin order
+    ordered = sorted(execs, key=lambda e: (open_counts.get(e["id"], 0), total_counts.get(e["id"], 0), (execs.index(e) - rr_idx) % len(execs)))
+    return ordered[0]
 
 async def _create_inquiry_from_normalized(name: str, phone: str, email: str, source: str, message: str, meta: dict = None):
     """Shared helper: create + assign inquiry from normalized fields."""
@@ -837,6 +854,205 @@ async def import_inquiries_xlsx(file: UploadFile = File(...), user: dict = Depen
                 errors.append(f"{ws.title} row {row_no}: {e}")
 
     return {"ok": True, "inserted": total_inserted, "skipped": total_skipped, "errors": errors[:20]}
+
+
+# ---------------- Marketing Reports ----------------
+def _parse_range_yyyymmdd(from_date: Optional[str], to_date: Optional[str], preset: Optional[str]):
+    """Return (from_iso, to_iso_exclusive, label) for use in Mongo string compare of created_at."""
+    today = datetime.now(timezone.utc).date()
+    if preset:
+        p = preset.lower()
+        if p == "today":
+            f, t = today, today; label = "Today"
+        elif p in ("week", "7d"):
+            f, t = today - timedelta(days=6), today; label = "Last 7 days"
+        elif p in ("month", "30d"):
+            f, t = today - timedelta(days=29), today; label = "Last 30 days"
+        elif p in ("year", "365d"):
+            f, t = today - timedelta(days=364), today; label = "Last 12 months"
+        elif p == "all":
+            f, t = date(2020, 1, 1), today; label = "All time"
+        else:
+            f, t = today - timedelta(days=29), today; label = "Last 30 days"
+    else:
+        try:
+            f = datetime.fromisoformat(from_date).date() if from_date else today - timedelta(days=29)
+            t = datetime.fromisoformat(to_date).date() if to_date else today
+        except Exception:
+            f, t = today - timedelta(days=29), today
+        label = f"{f} → {t}"
+    return f.isoformat(), (t + timedelta(days=1)).isoformat(), label
+
+
+@api.get("/marketing/report")
+async def marketing_report(
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    preset: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Per-executive marketing performance report in the given window.
+
+    Returns each exec's: assigned, new, contacted, converted, lost, conversion_rate,
+    remarks_added, avg_response_hours (time to first remark by that exec),
+    source_breakdown, and a per-day trend."""
+    f_iso, t_iso, label = _parse_range_yyyymmdd(from_date, to_date, preset)
+
+    execs = await db.users.find({"is_marketing_exec": True}, {"_id": 0, "id": 1, "name": 1, "email": 1}).sort("name", 1).to_list(200)
+    inquiries = await db.inquiries.find(
+        {"created_at": {"$gte": f_iso, "$lt": t_iso}},
+        {"_id": 0}
+    ).to_list(50000)
+
+    per_exec = {e["id"]: {
+        **e,
+        "assigned": 0, "new": 0, "contacted": 0, "converted": 0, "lost": 0,
+        "remarks_added": 0,
+        "response_hours_sum": 0.0, "response_samples": 0,
+        "source_breakdown": {},
+        "day_trend": {},
+    } for e in execs}
+    unassigned = {"assigned": 0, "new": 0, "contacted": 0, "converted": 0, "lost": 0}
+    totals = {"assigned": 0, "new": 0, "contacted": 0, "converted": 0, "lost": 0}
+
+    for inq in inquiries:
+        aid = inq.get("assigned_to")
+        status_val = (inq.get("status") or "new").lower()
+        bucket = per_exec.get(aid) if aid in per_exec else unassigned
+        bucket["assigned"] = bucket.get("assigned", 0) + 1
+        bucket[status_val] = bucket.get(status_val, 0) + 1
+        totals["assigned"] += 1
+        totals[status_val] = totals.get(status_val, 0) + 1
+        if aid in per_exec:
+            e = per_exec[aid]
+            src = inq.get("source", "other") or "other"
+            e["source_breakdown"][src] = e["source_breakdown"].get(src, 0) + 1
+            day = (inq.get("created_at") or "")[:10]
+            if day:
+                d = e["day_trend"].setdefault(day, {"assigned": 0, "converted": 0})
+                d["assigned"] += 1
+                if status_val == "converted":
+                    d["converted"] += 1
+            remarks = inq.get("remarks") or []
+            first_action = None
+            for r in remarks:
+                if r.get("by_id") == aid:
+                    e["remarks_added"] += 1
+                    if r.get("at") and (first_action is None or r["at"] < first_action):
+                        first_action = r["at"]
+            if first_action and inq.get("created_at"):
+                try:
+                    delta = datetime.fromisoformat(first_action.replace("Z", "+00:00")) - datetime.fromisoformat(inq["created_at"].replace("Z", "+00:00"))
+                    hours = max(delta.total_seconds() / 3600.0, 0)
+                    e["response_hours_sum"] += hours
+                    e["response_samples"] += 1
+                except Exception:
+                    pass
+
+    executives = []
+    for e in per_exec.values():
+        assigned = e["assigned"]
+        converted = e.get("converted", 0)
+        conv_rate = round((converted / assigned) * 100, 1) if assigned else 0.0
+        avg_resp = round(e["response_hours_sum"] / e["response_samples"], 1) if e["response_samples"] else None
+        trend = sorted([{"date": d, **v} for d, v in e["day_trend"].items()], key=lambda x: x["date"])
+        executives.append({
+            "id": e["id"], "name": e["name"], "email": e.get("email"),
+            "assigned": assigned, "new": e.get("new", 0), "contacted": e.get("contacted", 0),
+            "converted": converted, "lost": e.get("lost", 0),
+            "conversion_rate": conv_rate,
+            "remarks_added": e["remarks_added"],
+            "avg_response_hours": avg_resp,
+            "source_breakdown": e["source_breakdown"],
+            "day_trend": trend,
+        })
+    executives.sort(key=lambda x: (-x["conversion_rate"], -x["assigned"]))
+
+    totals["conversion_rate"] = round((totals["converted"] / totals["assigned"]) * 100, 1) if totals["assigned"] else 0.0
+    return {
+        "from": f_iso, "to": t_iso, "label": label,
+        "executives": executives, "totals": totals, "unassigned": unassigned,
+    }
+
+
+@api.get("/marketing/report.xlsx")
+async def marketing_report_xlsx(
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    preset: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from io import BytesIO
+
+    report = await marketing_report(from_date=from_date, to_date=to_date, preset=preset, user=user)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    settings = await _get_settings()
+    park = settings.get("firm_name") or settings.get("park_name") or "Funland"
+
+    ws.append([f"{park} — Marketing Report", report.get("label", "")])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append([f"Range: {report['from']} to {report['to']}"])
+    ws.append([])
+
+    headers = ["Executive", "Email", "Assigned", "New", "Contacted", "Converted", "Lost", "Conv. Rate %", "Remarks", "Avg Response (hrs)"]
+    ws.append(headers)
+    for c in ws[ws.max_row]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="FF7A00")
+        c.alignment = Alignment(horizontal="center")
+
+    for e in report["executives"]:
+        ws.append([
+            e["name"], e.get("email", ""),
+            e["assigned"], e["new"], e["contacted"], e["converted"], e["lost"],
+            e["conversion_rate"], e["remarks_added"],
+            e["avg_response_hours"] if e["avg_response_hours"] is not None else "—",
+        ])
+    t = report["totals"]
+    ws.append([])
+    ws.append(["TOTAL", "", t["assigned"], t.get("new", 0), t.get("contacted", 0), t.get("converted", 0), t.get("lost", 0), t.get("conversion_rate", 0), "", ""])
+    for c in ws[ws.max_row]:
+        c.font = Font(bold=True)
+        c.fill = PatternFill("solid", fgColor="FFE5CC")
+
+    for e in report["executives"]:
+        sheet_name = (e["name"] or "Exec")[:28]
+        try:
+            ws2 = wb.create_sheet(title=sheet_name)
+        except Exception:
+            ws2 = wb.create_sheet(title=f"Exec-{report['executives'].index(e)}")
+        ws2.append([e["name"]])
+        ws2["A1"].font = Font(bold=True, size=13)
+        ws2.append([])
+        ws2.append(["Source", "Count"])
+        for c in ws2[ws2.max_row]:
+            c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0080FF")
+        for src, n in sorted(e["source_breakdown"].items(), key=lambda x: -x[1]):
+            ws2.append([src, n])
+        ws2.append([]); ws2.append([]); ws2.append(["Date", "Assigned", "Converted"])
+        for c in ws2[ws2.max_row]:
+            c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0080FF")
+        for d in e["day_trend"]:
+            ws2.append([d["date"], d.get("assigned", 0), d.get("converted", 0)])
+        for col in ws2.columns:
+            ws2.column_dimensions[col[0].column_letter].width = 18
+
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 18
+
+    buf = BytesIO()
+    wb.save(buf)
+    filename = f"marketing_report_{report['from']}_{report['to'][:10]}.xlsx".replace(" ", "_")
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 # ---------------- Bills / Visits ----------------
 # ---------------- GST helpers (Indian compliance) ----------------
