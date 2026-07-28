@@ -83,26 +83,17 @@ Added later:
 5. When ready for social auto-sync, apply for Meta Business API access
 
 ## Changelog
+### 2026-07-28 — Marketing Team Report + fair-share allotment
+- **Fair-share round-robin** (`_pick_next_marketing_exec`) — new inquiries auto-go to the exec with the FEWEST open (new + contacted) inquiries. Ties broken by fewest-total and stable RR counter — truly barabar allotment.
+- **New endpoint `/api/marketing/report`** returning per-exec: assigned, new, contacted, converted, lost, conversion_rate, remarks_added, avg_response_hours, source_breakdown, day_trend. Presets: today / week / month / year / all + custom `from` & `to`.
+- **New endpoint `/api/marketing/report.xlsx`** — multi-sheet workbook (Summary + one sheet per exec with source breakdown & daily trend).
+- **New Marketing → Team Report tab** — 6 preset buttons, custom-range date inputs, 4 KPI cards, medal-badged leaderboard table with TOTAL row, Assigned vs Converted bar chart, one-click **Download Excel**, **Share via WhatsApp** (wa.me deep-link with formatted summary), and native **Share** (uses `navigator.share` on mobile, falls back to copy).
+- Existing "Compose Campaign" flow preserved in the **Campaigns** tab.
+
 ### 2026-07-27 (v4) — Auto Inquiries: WhatsApp + SMS + Instagram + Facebook
-- **Secured inbound webhook** with per-park `inquiry_webhook_secret` (auto-generated; passed as `?secret=` or `X-Webhook-Secret` header). Wrong/missing secret → 401.
-- **Multi-format payload parsing** — same endpoint accepts:
-  - Generic JSON: `{name, phone, message}`
-  - **Twilio SMS + WhatsApp** (form-urlencoded `From/Body/ProfileName`) → responds with TwiML
-  - **Android SMS Forwarder / MacroDroid** (`{from, text, sentStamp}`)
-  - **Meta WhatsApp Cloud API** (`entry[].changes[].value.messages[]`) — full contact/profile extraction
-  - **Meta Instagram + Messenger** (`entry[].messaging[]`)
-  - **Zapier** flat mapping
-- **Meta verify endpoint** — `GET /api/inquiries/webhook/meta` handles `hub.mode/hub.verify_token/hub.challenge` with per-park `meta_verify_token`
-- **Frontend Channel Setup** — completely redesigned Inquiries → "Channel Setup" modal now has 5 tabs (WhatsApp, SMS, Instagram, Facebook, Zapier) with step-by-step recipes, Play Store links, one-click Copy for URLs + secret + Meta verify token. Provides both FREE Phase-1 (Android forwarder / WA Business App) and Paid/Verified Phase-2 (Meta Cloud API / Twilio) setup guides.
-- **Round-robin assignment** continues to auto-distribute to Marketing Executive staff.
+- Secured webhook with per-park secret; multi-format payload parsing (Twilio, Android SMS Forwarder, Meta Cloud API, Zapier); Meta verify endpoint.
+- Frontend Channel Setup modal with 5 tabbed setup guides.
 
 ### 2026-07-27 (v3) — Multi-category package split · UPI everywhere · Lenient Excel import
-- Package now supports unlimited GST split lines (Activity 18%, Food 5%, Room 12%, Clothing 12%, Merchandise 18%, Other 18%). Autofill button splits equally from inclusions.
-- New reusable `UpiPayBlock` (full/compact/print) rendered on New Visit, Bill Detail, Print Bill, Public Pre-booking.
-- Inquiries Excel import now super-lenient — accepts any header (English/Hindi), phone-only rows → name="Unknown", floats, +91 prefix, junk header rows, source shortcuts.
-
 ### 2026-07-27 — Indian GST compliance + Inquiries Excel v1
-- Tax-invoice compliant bills (CGST+SGST or IGST, HSN, GSTIN, gst_breakup). Firm GST / FSSAI card in Settings. Excel export/import.
-
 ### 2026-07-26 — Dashboard "Sales Mix" upgrade
-- Packages Sold + Games Played metric cards + stacked bar chart replacing Popular Rides.
