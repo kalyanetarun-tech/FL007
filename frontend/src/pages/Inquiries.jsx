@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { copyToClipboard } from "@/lib/clipboard";
-import { Plus, Phone, Instagram, Facebook, MessageCircle, User, Copy, MessagesSquare, Send, Download, Upload, FileSpreadsheet } from "lucide-react";
+import { Plus, Phone, Instagram, Facebook, MessageCircle, User, Copy, MessagesSquare, Send, Download, Upload, FileSpreadsheet, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 
 const STATUS_COLORS = {
   new: "bg-primary/20 text-accent border-primary",
@@ -36,15 +36,17 @@ export default function Inquiries() {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("all");
   const [scope, setScope] = useState(isAdmin ? "all" : "mine");
+  const [showArchived, setShowArchived] = useState(false);
   const [detailInq, setDetailInq] = useState(null);
   const [newRemark, setNewRemark] = useState("");
   const [webhookOpen, setWebhookOpen] = useState(false);
 
-  const load = () => api.get("/inquiries").then((r) => setList(r.data)).catch(() => {});
+  const load = () => api.get("/inquiries", { params: showArchived ? { only_archived: 1 } : {} }).then((r) => setList(r.data)).catch(() => {});
   useEffect(() => {
     load();
     if (isAdmin) api.get("/users").then((r) => setExecs(r.data.filter((u) => u.is_marketing_exec)));
-  }, [isAdmin]);
+    // eslint-disable-next-line
+  }, [isAdmin, showArchived]);
 
   const create = async () => {
     if (!form.name || !form.phone) return toast.error("Name & phone required");
@@ -74,6 +76,15 @@ export default function Inquiries() {
       setDetailInq(data); load();
       toast.success("Reassigned");
     } catch (e) { toast.error(fmtErr(e)); }
+  };
+  const archiveInq = async (id) => {
+    if (!window.confirm("Move this inquiry to archive? Data safe rahega — Archive tab se restore kar sakte ho.")) return;
+    try { await api.delete(`/inquiries/${id}`); toast.success("Moved to archive"); setDetailInq(null); load(); }
+    catch (e) { toast.error(fmtErr(e)); }
+  };
+  const restoreInq = async (id) => {
+    try { await api.post(`/inquiries/${id}/restore`); toast.success("Restored"); setDetailInq(null); load(); }
+    catch (e) { toast.error(fmtErr(e)); }
   };
 
   const downloadXlsx = async (path, filename) => {
@@ -115,6 +126,9 @@ export default function Inquiries() {
         action={
           <div className="flex flex-wrap gap-2">
             <input id="inq-import-file" type="file" accept=".xlsx,.xls" onChange={importXlsx} className="hidden" data-testid="inq-import-input" />
+            <Button data-testid="inq-archive-toggle" onClick={() => setShowArchived(!showArchived)} variant={showArchived ? "default" : "outline"} className={`rounded-full h-11 px-4 font-bold ${showArchived ? "bg-primary text-primary-foreground" : ""}`}>
+              <Archive className="h-4 w-4 mr-1" /> {showArchived ? "Show Active" : "Archived"}
+            </Button>
             <Button data-testid="inq-template-btn" onClick={downloadTemplate} variant="outline" className="rounded-full h-11 px-4 font-bold"><FileSpreadsheet className="h-4 w-4 mr-1" /> Template</Button>
             <Button data-testid="inq-import-btn" onClick={() => document.getElementById("inq-import-file").click()} variant="outline" className="rounded-full h-11 px-4 font-bold"><Upload className="h-4 w-4 mr-1" /> Import Excel</Button>
             <Button data-testid="inq-export-btn" onClick={exportXlsx} variant="outline" className="rounded-full h-11 px-4 font-bold"><Download className="h-4 w-4 mr-1" /> Export</Button>
@@ -146,13 +160,16 @@ export default function Inquiries() {
           {filtered.map((i) => {
             const Icon = SOURCE_ICONS[i.source] || Phone;
             return (
-              <Card key={i.id} className="p-5 rounded-2xl hover:shadow-md transition-shadow cursor-pointer" data-testid={`inquiry-card-${i.id}`} onClick={() => setDetailInq(i)}>
+              <Card key={i.id} className={`p-5 rounded-2xl hover:shadow-md transition-shadow cursor-pointer ${i.is_deleted ? "opacity-70 border-dashed" : ""}`} data-testid={`inquiry-card-${i.id}`} onClick={() => setDetailInq(i)}>
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <div className="font-black text-lg">{i.name}</div>
                     <div className="text-sm text-muted-foreground flex items-center gap-1"><Icon className="h-3.5 w-3.5" /> {i.source}</div>
                   </div>
-                  <Badge className={`rounded-full border ${STATUS_COLORS[i.status]} font-bold uppercase text-[10px] tracking-widest`}>{i.status}</Badge>
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge className={`rounded-full border ${STATUS_COLORS[i.status]} font-bold uppercase text-[10px] tracking-widest`}>{i.status}</Badge>
+                    {i.is_deleted && <Badge className="rounded-full bg-muted text-muted-foreground border-muted font-bold uppercase text-[9px] tracking-widest" data-testid="archived-badge">Archived</Badge>}
+                  </div>
                 </div>
                 <div className="text-sm space-y-1 mb-3">
                   <div><span className="text-muted-foreground">Phone: </span><span className="font-semibold">{i.phone}</span></div>
@@ -259,6 +276,19 @@ export default function Inquiries() {
                     <div>{detailInq.notes}</div>
                   </div>
                 )}
+
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                  {detailInq.is_deleted ? (
+                    <Button data-testid="detail-restore-btn" onClick={() => restoreInq(detailInq.id)} className="rounded-full h-9 px-4 font-bold bg-emerald-600 hover:bg-emerald-700 text-white">
+                      <ArchiveRestore className="h-4 w-4 mr-1" /> Restore
+                    </Button>
+                  ) : (
+                    <Button data-testid="detail-archive-btn" onClick={() => archiveInq(detailInq.id)} variant="outline" className="rounded-full h-9 px-4 font-bold text-destructive hover:bg-destructive/10 border-destructive/40">
+                      <Archive className="h-4 w-4 mr-1" /> Move to Archive
+                    </Button>
+                  )}
+                  <div className="text-[10px] text-muted-foreground self-center">Archive se restore hamesha possible hai — permanent delete kabhi nahi hoga</div>
+                </div>
 
                 <div>
                   <div className="text-xs uppercase tracking-widest font-bold text-secondary mb-2">Remarks / Timeline</div>

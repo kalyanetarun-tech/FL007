@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 15: Verified SOFT-DELETE for Inquiries (user's disappearing-imports bug). Backend: 11/11 pytest cases pass — default list excludes archived, only_archived returns only is_deleted=true, include_archived returns all, POST/DELETE/restore round-trip + DB persistence, DELETE returns {ok,id,archived:true}, 404 for missing id on both delete & restore, dashboard/stats total_inquiries + inquiries_new exclude archived, /inquiries/export.xlsx excludes archived, /marketing/report totals exclude archived, /inquiries/import creates rows with is_deleted=false, deleted_at + deleted_by populated on soft delete. Frontend: end-to-end UI flow works — Archived toggle button (inq-archive-toggle) present with 'Archived' initial label switching to 'Show Active' when active; new inquiry visible in active list; opening detail shows detail-archive-btn; clicking it (browser confirm auto-accepted) archives the record and card disappears from active list; archived view shows archived-badge on card and dashed/faded style; opening archived record shows detail-restore-btn (no archive btn); restore moves record back to active list. Regression: All/New/Contacted/Converted/Lost filter tabs and Template/Import/Export/Channel Setup buttons still present. Backward-compat verified (records without is_deleted field still shown in default list — visible in current DB e.g. TEST_SD_Export_UNIQUE from previous manual test).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter15_soft_delete.py",
+    "/app/test_reports/pytest/iter15.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py has grown further (~2050 lines). Split into routers (inquiries/marketing/bills/settings) is overdue.",
+    "Soft-delete filter is duplicated in 6+ places as `{\"$or\":[{is_deleted:{$exists:false}},{is_deleted:false}]}` — extract to a module-level constant `NOT_ARCHIVED_Q` to prevent drift if the semantics change.",
+    "DELETE /api/inquiries/{id} is idempotent-safe but returns 200 both on already-archived and freshly-archived — consider indicating already-archived via a flag if callers care.",
+    "restore endpoint uses $unset which is fine, but the 404 check uses matched_count — if record already exists but was never archived, it still returns 200. Acceptable.",
+    "No index on inquiries.is_deleted — with 20k+ documents the default $or query will do a COLLSCAN. Add a compound index (is_deleted, created_at desc).",
+    "The list_inquiries endpoint accepts include_archived AND only_archived as separate bools but if both are true, only_archived wins silently. Consider erroring on the conflict for clarity."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter15_soft_delete.py (new — 11 tests)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% of tested elements"},
+  "test_credentials": "admin@funland.in / Funland@123",
+  "seed_data_creation": "Test artefacts prefixed TEST_SD_* were created and soft-deleted at end of each test (per user directive — no hard deletes). One leftover archived TEST_SD_Export_UNIQUE remains in DB alongside a pre-existing active copy (created by previous manual run). Left as-is per agent-to-agent context note.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Soft-delete story is fully covered in /app/backend/tests/test_iter15_soft_delete.py. Use `-o addopts=` to bypass pytest-xdist (default -n=auto in pytest.ini) when running single-file. IMPORTANT — DO NOT run any hard-delete cleanup scripts on inquiries collection; user's real data is co-mingled with test data. Prior context: existing archived record 'SoftDelTest' (phone 9111100888) is intentional and must not be touched.",
+  "rca of the issue": "N/A — feature fix verified working. Original disappearing-inquiries bug was caused by prior iterations running hard-delete cleanup on inquiries collection. New soft-delete approach (is_deleted flag + restore endpoint) means no inquiry can now be lost from the UI unless the user explicitly archives it, and even then the row still exists in Mongo and is recoverable via /api/inquiries/{id}/restore."
+}

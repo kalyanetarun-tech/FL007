@@ -365,8 +365,14 @@ async def delete_package(pid: str, _: dict = Depends(require_admin)):
 
 # ---------------- Inquiries ----------------
 @api.get("/inquiries")
-async def list_inquiries(user: dict = Depends(get_current_user)):
-    return await db.inquiries.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+async def list_inquiries(include_archived: bool = False, only_archived: bool = False, user: dict = Depends(get_current_user)):
+    """Active inquiries by default. Archived (soft-deleted) are hidden unless include_archived=1 or only_archived=1."""
+    q = {}
+    if only_archived:
+        q["is_deleted"] = True
+    elif not include_archived:
+        q["$or"] = [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]
+    return await db.inquiries.find(q, {"_id": 0}).sort("created_at", -1).to_list(20000)
 
 # Webhook endpoint - accepts inquiries from external sources (WhatsApp/Twilio, Meta, Zapier, etc.)
 async def _pick_next_marketing_exec() -> Optional[dict]:
@@ -380,7 +386,7 @@ async def _pick_next_marketing_exec() -> Optional[dict]:
     open_counts = {e["id"]: 0 for e in execs}
     total_counts = {e["id"]: 0 for e in execs}
     async for row in db.inquiries.aggregate([
-        {"$match": {"assigned_to": {"$in": [e["id"] for e in execs]}}},
+        {"$match": {"assigned_to": {"$in": [e["id"] for e in execs]}, "$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}},
         {"$group": {"_id": {"a": "$assigned_to", "s": "$status"}, "n": {"$sum": 1}}},
     ]):
         rid = row["_id"]["a"]
@@ -582,6 +588,24 @@ async def add_remark(iid: str, data: RemarkIn, user: dict = Depends(get_current_
     await db.inquiries.update_one({"id": iid}, {"$push": {"remarks": remark}})
     return await db.inquiries.find_one({"id": iid}, {"_id": 0})
 
+@api.delete("/inquiries/{iid}")
+async def soft_delete_inquiry(iid: str, user: dict = Depends(get_current_user)):
+    """SOFT delete — moves inquiry to archive, doesn't actually erase.
+    Restore via POST /api/inquiries/{iid}/restore. Admin can force-erase via ?permanent=1 (not exposed on this endpoint)."""
+    doc = await db.inquiries.find_one({"id": iid}, {"_id": 0, "id": 1})
+    if not doc:
+        raise HTTPException(404, "Inquiry not found")
+    await db.inquiries.update_one({"id": iid}, {"$set": {"is_deleted": True, "deleted_at": now_iso(), "deleted_by": user["id"], "deleted_by_name": user["name"]}})
+    return {"ok": True, "id": iid, "archived": True}
+
+@api.post("/inquiries/{iid}/restore")
+async def restore_inquiry(iid: str, user: dict = Depends(get_current_user)):
+    """Un-archive a previously soft-deleted inquiry."""
+    r = await db.inquiries.update_one({"id": iid}, {"$set": {"is_deleted": False}, "$unset": {"deleted_at": "", "deleted_by": "", "deleted_by_name": ""}})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Inquiry not found")
+    return await db.inquiries.find_one({"id": iid}, {"_id": 0})
+
 # --- Inquiries Excel import/export ---
 INQUIRY_XLSX_COLUMNS = [
     "Name", "Phone", "Email", "Source", "Interest", "Notes",
@@ -594,7 +618,7 @@ async def export_inquiries_xlsx(user: dict = Depends(get_current_user)):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     from io import BytesIO
-    rows = await db.inquiries.find({}, {"_id": 0}).sort("created_at", -1).to_list(20000)
+    rows = await db.inquiries.find({"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}, {"_id": 0}).sort("created_at", -1).to_list(20000)
     wb = Workbook()
     ws = wb.active
     ws.title = "Inquiries"
@@ -900,7 +924,7 @@ async def marketing_report(
 
     execs = await db.users.find({"is_marketing_exec": True}, {"_id": 0, "id": 1, "name": 1, "email": 1}).sort("name", 1).to_list(200)
     inquiries = await db.inquiries.find(
-        {"created_at": {"$gte": f_iso, "$lt": t_iso}},
+        {"created_at": {"$gte": f_iso, "$lt": t_iso}, "$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]},
         {"_id": 0}
     ).to_list(50000)
 
@@ -1604,8 +1628,9 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
 
     bills_week = await db.bills.find({"created_at": {"$gte": since_7}}, {"_id": 0, "total": 1, "created_at": 1, "payment_status": 1}).to_list(5000)
 
-    inquiries_new = await db.inquiries.count_documents({"status": "new"})
-    total_inquiries = await db.inquiries.count_documents({})
+    _not_deleted = {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}
+    inquiries_new = await db.inquiries.count_documents({"status": "new", **_not_deleted})
+    total_inquiries = await db.inquiries.count_documents(_not_deleted)
     pending_bills = await db.bills.count_documents({"payment_status": "pending"})
     pending_prebookings = await db.prebookings.count_documents({"status": {"$in": ["pending", "confirmed"]}})
 
@@ -1793,7 +1818,7 @@ async def create_campaign(data: CampaignIn, admin: dict = Depends(require_admin)
         phones = list({b.get("customer_phone", "") for b in bills if b.get("customer_phone")})
         emails = list({b.get("customer_email", "") for b in bills if b.get("customer_email")})
     elif data.audience == "inquiries":
-        inqs = await db.inquiries.find({}, {"_id": 0, "phone": 1, "email": 1}).to_list(5000)
+        inqs = await db.inquiries.find({"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}, {"_id": 0, "phone": 1, "email": 1}).to_list(5000)
         phones = list({i.get("phone", "") for i in inqs if i.get("phone")})
         emails = list({i.get("email", "") for i in inqs if i.get("email")})
 
