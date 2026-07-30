@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useAuth } from "@/lib/auth";
+import { Link, useNavigate } from "react-router-dom";
 import { api, fmtErr, inr } from "@/lib/api";
 import { PageHead, EmptyState } from "@/components/Page";
 import { Card } from "@/components/ui/card";
@@ -20,6 +21,8 @@ const STATUS_COLORS = {
 };
 
 export default function Prebookings() {
+  const nav = useNavigate();
+  const { isAdmin } = useAuth();
   const [list, setList] = useState(null);
   const [filter, setFilter] = useState("all");
   const [detail, setDetail] = useState(null);
@@ -35,8 +38,14 @@ export default function Prebookings() {
     catch (e) { toast.error(fmtErr(e)); }
   };
   const convert = async (id) => {
-    try { const { data } = await api.post(`/prebookings/${id}/convert`); toast.success(`Bill ${data.bill_no} created`); load(); setDetail(null); }
-    catch (e) { toast.error(fmtErr(e)); }
+    try {
+      const { data } = await api.post(`/prebookings/${id}/convert`);
+      toast.success(`Bill ${data.bill_no} created`);
+      setDetail(null); load();
+      // Redirect directly to the newly-created bill
+      const billId = data.bill_id || data.id || data.converted_bill_id;
+      if (billId) nav(`/bills/${billId}`);
+    } catch (e) { toast.error(fmtErr(e)); }
   };
   const send = async () => {
     try {
@@ -159,7 +168,7 @@ export default function Prebookings() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs uppercase tracking-widest font-bold text-muted-foreground mb-1">Change Status</div>
-                    <Select value={detail.status} onValueChange={(v) => updateStatus(detail.id, v)}>
+                    <Select value={detail.status} onValueChange={(v) => updateStatus(detail.id, v)} disabled={!!detail.converted_bill_id && !isAdmin}>
                       <SelectTrigger data-testid="pbk-status-select"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="pending">Pending</SelectItem>
@@ -169,11 +178,20 @@ export default function Prebookings() {
                         <SelectItem value="cancelled">Cancelled</SelectItem>
                       </SelectContent>
                     </Select>
+                    {detail.converted_bill_id && !isAdmin && (
+                      <div className="text-[10px] text-muted-foreground mt-1">🔒 Bill ban chuki hai — edit sirf admin</div>
+                    )}
                   </div>
                   <div className="flex items-end">
                     <Button data-testid="pbk-send-btn" onClick={() => setSendOpen(true)} className="w-full rounded-full" variant="outline"><Send className="h-4 w-4 mr-1" /> Send Link</Button>
                   </div>
                 </div>
+
+                {detail.converted_bill_id && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800" data-testid="pbk-locked-info">
+                    ✅ Yeh prebooking bill me convert ho chuki hai. Invoice edit karne ke liye <Link to={`/bills/${detail.converted_bill_id}`} className="font-black underline">bill open karo</Link>.
+                  </div>
+                )}
 
                 {detail.razorpay_link && (
                   <a href={detail.razorpay_link} target="_blank" rel="noreferrer" className="block p-3 border-2 border-accent rounded-xl text-center font-bold hover:bg-accent hover:text-accent-foreground transition-colors">

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 16 bundle testing. Backend: 19/19 pytest cases PASS covering (a) GET /api/health no-auth warm-up, (b) GameIn accepts new categories rooms/food/activities/games/miscellaneous/merchandise, (c) BillIn compulsory checked_by + payment_reference for non-cash paid (rtgs/netbanking/cheque/upi_qr/card all correctly return 400 with detail mentioning checked_by/payment_reference), (d) rtgs/netbanking/cheque succeed when audit fields filled, (e) cash+paid works without audit fields, (f) non-cash+pending works without audit fields, (g) POST /api/prebookings/{id}/convert returns bill_doc with 'id' field, admin can update status post-conversion, non-admin gets 403 with 'Lock' in detail, (h) Excel /api/inquiries/import inserts 3 rows and they persist across 3 consecutive GETs (soft-delete regression holds). Frontend: All key UI hooks verified — Sidebar label 'Items / Activities' present; /games title 'Items / Activities'; game-category dropdown has 7 options with correct labels (Activities/Rides, Games, Food & Beverage, Rooms/Stay, Miscellaneous, Merchandise, Other); game-gst-cat has 7 options (activity, food, room, clothing, merchandise, goods, other); Category→GST auto-sync works (food→food, rooms→room); /visit bill-method dropdown includes Cash, UPI (QR), Razorpay Link, Card, RTGS/NEFT, Net Banking, Cheque, Other; digital-audit-fields card appears when method=rtgs+status=paid, bill-payment-ref/bill-payment-at/bill-checked-by inputs all present; /prebookings loads 28 cards, detail modal shows pbk-locked-info banner for converted bookings; /book (public) — Booking Summary (pub-summary) confirmed positioned BELOW packages (y=1913 vs pkg y=241, single column); after adding a package, pax=1→4 keeps package qty=1 (total unchanged as designed); Dashboard sales-mix-card renders; Inquiries archive toggle present; 0 console errors on any page (including /api/health warm-up ping on mount).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Public /book — game item pax auto-sync",
+        "issue": "The pax→qty auto-sync useEffect targets kind==='game' cart lines, but the public /book UI only renders catalog.packages — there is NO section that lists catalog.games. Customers cannot add a single game/item to a prebooking from the public page, so the per-pax pricing for game lines (multiplication by pax) cannot be exercised end-to-end via the public UI. Backend logic is fine; frontend rendering of games section is missing. Consider adding a 'Rides / Individual Items' card below Packages that renders catalog.games with an add button.",
+        "affected_selectors": ["pub-game-*", "pub-total", "pub-pax"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter16_bundle.py",
+    "/app/test_reports/pytest/iter16.xml"
+  ],
+  "action_items": [
+    "Consider rendering catalog.games on public /book page so customers can add individual rides/items and exercise the per-pax price multiplication (backend already accepts it; only the UI list is missing).",
+    "Backend restart is not required; hot-reload picked up all iteration-16 changes and passed all API contract tests."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~2090 lines — still overdue for a router split (inquiries/marketing/bills/prebook/settings/games modules).",
+    "The digital-audit validation (line ~1270-1275) hardcodes _digital_methods locally; consider making this a module-level constant DIGITAL_METHODS to keep in sync with BillIn.payment_method Literal.",
+    "Prebookings.jsx convert() reads data.bill_id || data.id — backend returns 'id' only. The || fallback is defensive and fine but the 'bill_id' key is dead code.",
+    "PublicBook.jsx renders only catalog.packages; catalog.games is fetched but never displayed — likely regression/omission from an earlier iteration since the pax-sync effect assumes game lines can exist in the cart.",
+    "No index on prebookings.converted_bill_id — with growth the lock check does a full doc read; acceptable at current scale.",
+    "Game category dropdown includes both 'activities' and 'games' with identical GST rate (18% activity) — from a bookkeeping standpoint they collapse to the same GST bucket; consider whether 'games' should map to a distinct HSN."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter16_bundle.py (new — 19 tests)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% of tested elements"},
+  "test_credentials": "admin@funland.in / Funland@123",
+  "seed_data_creation": "Test artefacts prefixed TEST_ITER16_* created during tests: 6 game records (created + immediately deleted in the parametrized test cleanup), several bills with TEST_ITER16_Cust customer name (bills are not cleaned — they contribute to revenue metrics; user directive prohibits hard delete on inquiries but bills weren't called out. Left as-is to be safe.), 3 inquiries TEST_ITER16_IMP_A/B/C soft-deleted after import verification, 1 prebook TEST_ITER16_PBK left in DB (converted to bill so it now lives as arrived+billed), 1 employee user test_iter16_emp@funland.in created (kept — safe to delete manually if desired).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 16 bundle fully verified. The only observation is that the public /book page does not render individual games — only packages. The pax-sync effect is correct for game lines but the customer-facing UI has no way to add a game/item. If iteration 17 addresses this, re-verify per-pax total multiplication by scripting: fill pax=4, add a game, expect total = game.price * 4. Preserve TEST_ITER16_* leftover bills; hard-cleanup on bills has not been done to avoid altering revenue history. Backend tests are in /app/backend/tests/test_iter16_bundle.py — 19 tests, ~5s runtime, use -o addopts= to bypass -n auto from pytest.ini.",
+  "rca of the issue": "N/A — feature bundle verified working. The one gap (missing games section on public /book) predates this iteration; the current iteration correctly added pax→qty sync logic that will work as soon as a games section is added to the UI."
+}

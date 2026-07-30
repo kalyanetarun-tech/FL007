@@ -40,6 +40,12 @@ JWT_EXPIRE_HOURS = 24 * 7
 
 app = FastAPI(title="Funland CRM")
 api = APIRouter(prefix="/api")
+
+@api.get("/health")
+async def health():
+    """Lightweight health/warm-up endpoint (no auth). Frontend pings this on app load."""
+    return {"ok": True, "ts": datetime.now(timezone.utc).isoformat()}
+
 security = HTTPBearer(auto_error=False)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -115,15 +121,15 @@ class UserUpdate(BaseModel):
 
 class GameIn(BaseModel):
     name: str
-    category: str = "Ride"
+    category: str = "activity"  # top-level item bucket: food / rooms / activities / miscellaneous / games / other
     price: float
     offer_price: Optional[float] = None
     duration_min: Optional[int] = None
     description: Optional[str] = ""
     active: bool = True
-    # GST fields (Indian compliance)
-    gst_category: Literal["food", "activity", "goods"] = "activity"  # food=5%, activity=18%, goods=18%
-    hsn_code: Optional[str] = ""  # HSN/SAC — e.g. 999721 (amusement), 996331 (food)
+    # GST fields (Indian compliance) — kept internal, hidden from customer-facing receipts
+    gst_category: Literal["food", "activity", "goods", "room", "clothing", "merchandise", "other"] = "activity"
+    hsn_code: Optional[str] = ""
 
 class PackageSplitLine(BaseModel):
     label: str                       # user-facing name shown on invoice
@@ -190,8 +196,12 @@ class BillIn(BaseModel):
     discount: float = 0            # flat rupees discount
     discount_percent: float = 0    # OR percent discount (5-100)
     gst_percent: float = 0         # legacy: applied only if no per-item GST provided
-    payment_method: Literal["cash", "upi_qr", "razorpay", "card", "other"] = "cash"
+    payment_method: Literal["cash", "upi_qr", "razorpay", "card", "rtgs", "netbanking", "cheque", "other"] = "cash"
     payment_status: Literal["pending", "paid"] = "pending"
+    # Digital payment audit trail — REQUIRED when payment_method is not cash and status is paid
+    payment_reference: Optional[str] = ""   # UPI RRN / txn id / card auth code / cheque no / RTGS UTR
+    payment_at: Optional[str] = ""          # ISO datetime of the actual payment
+    checked_by: Optional[str] = ""          # Name of staff who verified receipt
     notes: Optional[str] = ""
 
 class AttendanceCheckIn(BaseModel):
@@ -1256,6 +1266,14 @@ async def create_bill(data: BillIn, user: dict = Depends(get_current_user)):
         expanded, data.discount, data.discount_percent, data.gst_percent, is_interstate
     )
 
+    # Enforce digital payment audit trail — if paid via non-cash, checked_by + payment_reference are required
+    _digital_methods = {"upi_qr", "razorpay", "card", "rtgs", "netbanking", "cheque"}
+    if data.payment_status == "paid" and data.payment_method in _digital_methods:
+        if not (data.checked_by or "").strip():
+            raise HTTPException(400, "checked_by is compulsory for digital payments — batao kisne verify kiya")
+        if not (data.payment_reference or "").strip():
+            raise HTTPException(400, "payment_reference (txn id / UTR / RRN / cheque no) compulsory hai non-cash payments ke liye")
+
     doc = {
         "id": new_id(),
         "bill_no": (settings.get("invoice_prefix") or "") + _bill_number(),
@@ -1275,6 +1293,9 @@ async def create_bill(data: BillIn, user: dict = Depends(get_current_user)):
         "total": total,
         "payment_method": data.payment_method,
         "payment_status": data.payment_status,
+        "payment_reference": (data.payment_reference or "").strip(),
+        "payment_at": (data.payment_at or "").strip() or (now_iso() if data.payment_status == "paid" else ""),
+        "checked_by": (data.checked_by or "").strip(),
         "razorpay_link": None,
         "notes": data.notes,
         "created_by": user["id"],
@@ -1420,6 +1441,12 @@ async def list_prebookings(user: dict = Depends(get_current_user)):
 
 @api.patch("/prebookings/{bid}/status")
 async def update_prebook_status(bid: str, data: PrebookStatusUpdate, user: dict = Depends(get_current_user)):
+    existing = await db.prebookings.find_one({"id": bid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Booking not found")
+    # Once a prebooking has been converted to a bill, only admins can further edit it
+    if existing.get("converted_bill_id") and user.get("role") != "admin":
+        raise HTTPException(403, "Locked — this prebooking has already been billed. Only admin can edit it now.")
     upd = {"status": data.status}
     if data.status == "paid":
         upd["payment_status"] = "paid"
@@ -1471,18 +1498,28 @@ async def send_prebook_link(bid: str, payload: dict, user: dict = Depends(get_cu
     channel = payload.get("channel", "whatsapp")
     frontend = os.environ.get("FRONTEND_URL", "").rstrip("/") or "https://game-package-tracker.preview.emergentagent.com"
     public_url = f"{frontend}/book/{b['booking_no']}"
+    settings = await _get_settings()
+    park = settings.get("park_name") or settings.get("firm_name") or "Funland Adventure Park"
     lines = [
-        f"Hi {b['customer_name']}!",
-        f"Aapki booking {b['booking_no']} confirm ho gayi 🎡",
+        f"🎡 *{park}*",
+        f"",
+        f"Namaste {b['customer_name']}!",
+        f"Aapki booking *{b['booking_no']}* confirm ho gayi ✅",
         f"Date: {b['booking_date']} {b.get('booking_time','')}",
         f"Amount: ₹{b['total']}",
         "",
-        f"View & Pay: {public_url}",
+        f"📋 View & Pay: {public_url}",
     ]
     if b.get("razorpay_link"):
-        lines.append(f"Pay online: {b['razorpay_link']}")
+        lines.append(f"💳 Pay online: {b['razorpay_link']}")
+    if settings.get("upi_id"):
+        lines.append(f"📲 UPI: {settings['upi_id']}")
+    if settings.get("phone"):
+        lines.append(f"📞 Contact: {settings['phone']}")
+    lines.append("")
+    lines.append("Thank you for choosing Funland! 🎉")
     msg = "\n".join(lines)
-    res = await _send_message(channel, b.get("customer_phone", ""), b.get("customer_email", ""), f"Funland Booking {b['booking_no']}", msg)
+    res = await _send_message(channel, b.get("customer_phone", ""), b.get("customer_email", ""), f"{park} — Booking {b['booking_no']}", msg)
     return {"ok": True, "delivery": res, "public_url": public_url}
 
 # ---------------- Attendance ----------------

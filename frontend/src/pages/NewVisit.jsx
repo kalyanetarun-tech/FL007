@@ -31,6 +31,9 @@ export default function NewVisit() {
   const [discountValue, setDiscountValue] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [paymentStatus, setPaymentStatus] = useState("paid");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentAt, setPaymentAt] = useState("");
+  const [checkedBy, setCheckedBy] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState(null);
@@ -104,7 +107,9 @@ export default function NewVisit() {
         discount: discountMode === "flat" ? discFlat : 0,
         discount_percent: discountMode === "percent" ? discPct : 0,
         gst_percent: 0,
-        payment_method: paymentMethod, payment_status: paymentStatus, notes,
+        payment_method: paymentMethod, payment_status: paymentStatus,
+        payment_reference: paymentReference, payment_at: paymentAt, checked_by: checkedBy,
+        notes,
       });
       toast.success(`Bill ${data.bill_no} created! Print button click karo`, {
         duration: 6000,
@@ -245,7 +250,10 @@ export default function NewVisit() {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="upi_qr">UPI (QR)</SelectItem>
                     <SelectItem value="razorpay">Razorpay Link</SelectItem>
-                    <SelectItem value="card">Card</SelectItem>
+                    <SelectItem value="card">Card (Debit / Credit)</SelectItem>
+                    <SelectItem value="rtgs">RTGS / NEFT</SelectItem>
+                    <SelectItem value="netbanking">Net Banking</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
@@ -262,6 +270,27 @@ export default function NewVisit() {
               </div>
               <Textarea data-testid="bill-notes" placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="text-sm" />
             </div>
+
+            {paymentStatus === "paid" && paymentMethod !== "cash" && (
+              <div className="mt-4 p-4 rounded-xl bg-secondary/10 border-2 border-secondary/30" data-testid="digital-audit-fields">
+                <div className="text-xs uppercase tracking-widest font-black text-secondary mb-3">Digital payment audit (compulsory)</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">Reference No / UTR / RRN*</Label>
+                    <Input data-testid="bill-payment-ref" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} placeholder="Txn ID / UTR / Card auth code" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Payment Date & Time</Label>
+                    <Input data-testid="bill-payment-at" type="datetime-local" value={paymentAt} onChange={(e) => setPaymentAt(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Checked By*</Label>
+                    <Input data-testid="bill-checked-by" value={checkedBy} onChange={(e) => setCheckedBy(e.target.value)} placeholder="Staff name" />
+                  </div>
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-2">Ye fields payment ki verification ke liye zaruri hain. Cash ke liye skip ho jaate hain.</div>
+              </div>
+            )}
 
             {paymentMethod === "upi_qr" && (settings?.upi_qr_url || settings?.upi_id) && (
               <div className="mt-4">

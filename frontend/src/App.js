@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { api } from "@/lib/api";
 import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
@@ -34,6 +35,13 @@ function Protected({ children, adminOnly, perm }) {
 }
 
 function App() {
+  // Warm-up ping the backend as soon as the app opens so cold-start latency is hidden
+  useEffect(() => {
+    api.get("/health").catch(() => {});
+    // Keep-alive ping every 4 min so backend stays warm during active use
+    const t = setInterval(() => { api.get("/health").catch(() => {}); }, 4 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
   return (
     <ErrorBoundary>
       <AuthProvider>

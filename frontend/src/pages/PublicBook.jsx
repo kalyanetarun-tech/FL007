@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast, Toaster } from "sonner";
 import UpiPayBlock from "@/components/UpiPayBlock";
 import { copyToClipboard } from "@/lib/clipboard";
-import { Loader2, Gamepad2, PartyPopper, Plus, Minus, X, Calendar, Users, CheckCircle2, ExternalLink, Copy } from "lucide-react";
+import { Loader2, Gamepad2, PartyPopper, Plus, Minus, X, Calendar, Users, CheckCircle2, ExternalLink, Copy, Receipt } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const inr = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -31,9 +31,18 @@ export function PublicBook() {
   const add = (item, kind) => setCart((c) => {
     const idx = c.findIndex((x) => x.ref_id === item.id);
     if (idx >= 0) { const nc = [...c]; nc[idx].qty++; return nc; }
-    return [...c, { kind, ref_id: item.id, name: item.name, price: priceOf(item), qty: 1 }];
+    const initialQty = kind === "game" ? Math.max(1, +form.pax || 1) : 1;
+    return [...c, { kind, ref_id: item.id, name: item.name, price: priceOf(item), qty: initialQty }];
   });
   const setQty = (i, q) => setCart((c) => c.map((x, idx) => idx === i ? { ...x, qty: Math.max(1, q) } : x));
+
+  // When pax count changes, auto-sync qty for GAME/ITEM lines (per-head pricing).
+  // Packages remain flat qty=1 (their price already covers the pax bundled inside).
+  useEffect(() => {
+    const p = Math.max(1, +form.pax || 1);
+    setCart((c) => c.map((x) => x.kind === "game" ? { ...x, qty: p } : x));
+    // eslint-disable-next-line
+  }, [form.pax]);
   const removeAt = (i) => setCart((c) => c.filter((_, idx) => idx !== i));
   const total = useMemo(() => cart.reduce((s, x) => s + x.price * x.qty, 0), [cart]);
 
@@ -57,10 +66,11 @@ export function PublicBook() {
       <header className="bg-white border-b border-border sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
           <img src="/icon-192.png" alt="Funland" className="w-10 h-10 rounded-xl border border-border object-contain bg-white shadow-sm" />
-          <div>
-            <div className="font-black leading-none"><span className="text-accent">Fun</span><span className="text-secondary">land</span></div>
-            <div className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Prebooking</div>
+          <div className="flex-1">
+            <div className="font-black leading-none text-lg"><span className="text-accent">Fun</span><span className="text-secondary">land</span> <span className="text-foreground/70 font-bold text-sm">Adventure Park</span></div>
+            <div className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Prebooking Portal · Indore</div>
           </div>
+          <a href="https://funlandindore.com" className="text-[10px] uppercase tracking-widest font-black text-muted-foreground hover:text-accent hidden sm:inline">funlandindore.com</a>
         </div>
       </header>
 
@@ -69,9 +79,8 @@ export function PublicBook() {
         <h1 className="text-4xl md:text-5xl font-black tracking-tight mb-2" style={{ fontFamily: "Fraunces, serif" }}>Advance booking karke aao — no wait!</h1>
         <p className="text-muted-foreground mb-8">Apna birthday ya party package pehle select karo, payment karo aur direct entry lo.</p>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          <div className="lg:col-span-3">
-            {(() => {
+        <div className="space-y-6">
+          {(() => {
               const groups = {};
               catalog.packages.forEach((p) => {
                 const key = (p.category || "").trim() || "Others";
@@ -80,20 +89,20 @@ export function PublicBook() {
               const groupKeys = Object.keys(groups).sort((a, b) => (a === "Others" ? 1 : b === "Others" ? -1 : a.localeCompare(b)));
               if (catalog.packages.length === 0) {
                 return (
-                  <Card className="p-5 rounded-2xl mb-4">
+                  <Card className="p-5 rounded-2xl">
                     <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">Available Packages</div>
                     <div className="text-center text-sm text-muted-foreground py-10">Packages abhi available nahi hain. Kripya park pe call karke booking karo.</div>
                   </Card>
                 );
               }
               return groupKeys.map((cat) => (
-                <Card key={cat} className="p-5 rounded-2xl mb-4">
+                <Card key={cat} className="p-5 rounded-2xl" data-testid={`pub-pkg-group-${cat}`}>
                   <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">{cat}</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {groups[cat].map((p) => (
-                      <button key={p.id} data-testid={`pub-pkg-${p.id}`} onClick={() => add(p, "package")} className="text-left p-4 rounded-xl border border-border hover:border-accent bg-white transition-colors">
-                        <div className="flex items-center gap-2 mb-1"><PartyPopper className="h-4 w-4 text-accent" /><div className="font-bold">{p.name}</div></div>
-                        <div className="text-xs uppercase text-muted-foreground tracking-widest font-bold">{p.type} · {p.pax} pax</div>
+                      <button key={p.id} data-testid={`pub-pkg-${p.id}`} onClick={() => add(p, "package")} className="text-left p-4 rounded-2xl border-2 border-border hover:border-accent hover:shadow-lg bg-white transition-all group">
+                        <div className="flex items-center gap-2 mb-1"><PartyPopper className="h-4 w-4 text-accent group-hover:scale-110 transition-transform" /><div className="font-black">{p.name}</div></div>
+                        <div className="text-[10px] uppercase text-muted-foreground tracking-widest font-black">{p.type} · {p.pax} pax</div>
                         {p.description && <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.description}</div>}
                         {p.inclusions?.length > 0 && (
                           <ul className="text-xs text-muted-foreground mt-2 space-y-0.5">
@@ -101,7 +110,16 @@ export function PublicBook() {
                             {p.inclusions.length > 3 && <li className="text-[10px]">+ {p.inclusions.length - 3} more</li>}
                           </ul>
                         )}
-                        <div className="text-lg font-black text-accent mt-2">{inr(priceOf(p))}</div>
+                        <div className="flex items-baseline gap-2 mt-3">
+                          {p.offer_price && p.offer_price < p.price ? (
+                            <>
+                              <span className="text-2xl font-black text-accent">{inr(p.offer_price)}</span>
+                              <span className="text-xs line-through text-muted-foreground">{inr(p.price)}</span>
+                            </>
+                          ) : (
+                            <span className="text-2xl font-black text-accent">{inr(p.price)}</span>
+                          )}
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -111,45 +129,43 @@ export function PublicBook() {
 
             <Card className="p-5 rounded-2xl">
               <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">Aapki details</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div><Label>Name*</Label><Input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} /></div>
-                <div><Label>Phone*</Label><Input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} /></div>
-                <div><Label>Email</Label><Input value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} /></div>
-                <div><Label>People (pax)</Label><Input type="number" min={1} value={form.pax} onChange={(e) => setForm({ ...form, pax: e.target.value })} /></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div><Label>Name*</Label><Input data-testid="pub-name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} /></div>
+                <div><Label>Phone*</Label><Input data-testid="pub-phone" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} /></div>
+                <div><Label>Email</Label><Input data-testid="pub-email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} /></div>
+                <div><Label>People (pax)</Label><Input data-testid="pub-pax" type="number" min={1} value={form.pax} onChange={(e) => setForm({ ...form, pax: e.target.value })} /></div>
                 <div><Label>Booking Date*</Label><Input type="date" value={form.booking_date} onChange={(e) => setForm({ ...form, booking_date: e.target.value })} /></div>
                 <div><Label>Preferred Time</Label><Input placeholder="e.g. 5:30 PM" value={form.booking_time} onChange={(e) => setForm({ ...form, booking_time: e.target.value })} /></div>
               </div>
               <div className="mt-3"><Label>Notes</Label><Textarea rows={2} placeholder="Special requests…" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
             </Card>
-          </div>
 
-          <div className="lg:col-span-2">
-            <Card className="p-5 rounded-2xl sticky top-24">
-              <div className="font-black text-lg mb-3">Booking Summary</div>
-              {cart.length === 0 ? <div className="text-center py-10 text-muted-foreground text-sm">Add items to book</div> :
-                <div className="space-y-2 mb-4 max-h-72 overflow-y-auto">
+            {/* Booking summary moved to BOTTOM */}
+            <Card className="p-6 rounded-2xl border-2 border-accent/30 bg-gradient-to-br from-accent/5 to-primary/5" data-testid="pub-summary">
+              <div className="font-black text-2xl mb-4 flex items-center gap-2"><Receipt className="h-6 w-6 text-accent" /> Booking Summary</div>
+              {cart.length === 0 ? <div className="text-center py-8 text-muted-foreground text-sm">Upar se koi package ya item select karo</div> :
+                <div className="space-y-2 mb-4 max-h-80 overflow-y-auto">
                   {cart.map((it, i) => (
-                    <div key={i} className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+                    <div key={i} className="flex items-center gap-2 p-3 bg-white rounded-xl border border-border">
                       <div className="flex-1 min-w-0">
-                        <div className="font-bold text-sm truncate">{it.name}</div>
-                        <div className="text-xs text-muted-foreground">{inr(it.price)} × {it.qty}</div>
+                        <div className="font-black text-sm truncate">{it.name}</div>
+                        <div className="text-xs text-muted-foreground">{inr(it.price)} × {it.qty} = <span className="font-bold text-foreground">{inr(it.price * it.qty)}</span></div>
                       </div>
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setQty(i, it.qty - 1)}><Minus className="h-3 w-3" /></Button>
-                      <span className="w-6 text-center font-bold text-sm">{it.qty}</span>
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setQty(i, it.qty + 1)}><Plus className="h-3 w-3" /></Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => removeAt(i)}><X className="h-3 w-3 text-destructive" /></Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setQty(i, it.qty - 1)}><Minus className="h-3 w-3" /></Button>
+                      <span className="w-8 text-center font-black text-sm">{it.qty}</span>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setQty(i, it.qty + 1)}><Plus className="h-3 w-3" /></Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => removeAt(i)}><X className="h-3 w-3 text-destructive" /></Button>
                     </div>
                   ))}
                 </div>}
-              <div className="flex items-center justify-between text-xl font-black pt-3 border-t border-border">
-                <span>Total</span><span className="text-accent">{inr(total)}</span>
+              <div className="flex items-center justify-between text-2xl font-black pt-3 border-t-2 border-accent/30">
+                <span>Total</span><span className="text-accent tabular-nums" data-testid="pub-total">{inr(total)}</span>
               </div>
-              <Button onClick={submit} disabled={busy || cart.length === 0 || !form.customer_name || !form.customer_phone} className="w-full mt-4 h-12 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground font-black">
-                {busy ? <Loader2 className="animate-spin h-5 w-5" /> : "Book Now"}
+              <Button data-testid="pub-book-btn" onClick={submit} disabled={busy || cart.length === 0 || !form.customer_name || !form.customer_phone} className="w-full mt-4 h-14 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground font-black text-lg">
+                {busy ? <Loader2 className="animate-spin h-5 w-5" /> : "Book Now →"}
               </Button>
               <div className="text-[10px] text-center text-muted-foreground mt-3">Booking ke baad payment link + QR aayega</div>
             </Card>
-          </div>
         </div>
       </div>
     </div>

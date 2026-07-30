@@ -13,7 +13,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Gamepad2 } from "lucide-react";
 
-const empty = { name: "", category: "Ride", price: 0, offer_price: null, duration_min: null, description: "", active: true, gst_category: "activity", hsn_code: "" };
+const ITEM_CATEGORIES = [
+  { v: "activities",    label: "Activities / Rides",     gst: "activity" },
+  { v: "games",         label: "Games",                   gst: "activity" },
+  { v: "food",          label: "Food & Beverage",         gst: "food" },
+  { v: "rooms",         label: "Rooms / Stay",            gst: "room" },
+  { v: "miscellaneous", label: "Miscellaneous",           gst: "other" },
+  { v: "merchandise",   label: "Merchandise",             gst: "merchandise" },
+  { v: "other",         label: "Other",                   gst: "other" },
+];
+const gstFor = (cat) => (ITEM_CATEGORIES.find((c) => c.v === cat) || ITEM_CATEGORIES[0]).gst;
+
+const empty = { name: "", category: "activities", price: 0, offer_price: null, duration_min: null, description: "", active: true, gst_category: "activity", hsn_code: "" };
 
 export default function Games() {
   const { isAdmin } = useAuth();
@@ -72,8 +83,8 @@ export default function Games() {
   return (
     <div>
       <PageHead
-        title="Games / Activities"
-        subtitle={isAdmin ? "Har game/activity ka price aur offer manage karo" : "Games / activities list (view only)"}
+        title="Items / Activities"
+        subtitle={isAdmin ? "Food, rooms, activities, games — sab yahin manage karo" : "Items / activities list (view only)"}
         action={isAdmin && (
           <div className="flex gap-2">
             {list.length === 0 && <Button data-testid="seed-games-btn" onClick={seedFunland} className="rounded-full bg-secondary hover:bg-secondary/90 h-11 px-5 font-bold text-secondary-foreground">Load Funland defaults</Button>}
@@ -88,18 +99,26 @@ export default function Games() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
           {list.map((g) => {
             const themes = {
+              "activities":    { bg: "from-amber-100 to-yellow-100", accent: "text-amber-700", pill: "bg-amber-500 text-white" },
+              "games":         { bg: "from-purple-100 to-fuchsia-100", accent: "text-fuchsia-700", pill: "bg-fuchsia-500 text-white" },
+              "food":          { bg: "from-rose-100 to-pink-100", accent: "text-rose-700", pill: "bg-rose-500 text-white" },
+              "rooms":         { bg: "from-cyan-100 to-blue-100", accent: "text-cyan-700", pill: "bg-cyan-500 text-white" },
+              "merchandise":   { bg: "from-indigo-100 to-purple-100", accent: "text-indigo-700", pill: "bg-indigo-500 text-white" },
+              "miscellaneous": { bg: "from-slate-100 to-gray-100", accent: "text-slate-700", pill: "bg-slate-500 text-white" },
+              // Legacy support for existing records
               "Adventure": { bg: "from-orange-100 to-red-100", accent: "text-red-600", pill: "bg-red-500 text-white" },
               "Water": { bg: "from-cyan-100 to-blue-100", accent: "text-cyan-700", pill: "bg-cyan-500 text-white" },
               "Ride": { bg: "from-amber-100 to-yellow-100", accent: "text-amber-700", pill: "bg-amber-500 text-white" },
               "Games": { bg: "from-purple-100 to-fuchsia-100", accent: "text-fuchsia-700", pill: "bg-fuchsia-500 text-white" },
             };
             const t = themes[g.category] || { bg: "from-emerald-100 to-teal-100", accent: "text-emerald-700", pill: "bg-emerald-500 text-white" };
+            const catLabel = (ITEM_CATEGORIES.find((c) => c.v === g.category) || {}).label || g.category;
             return (
               <Card key={g.id} className={`p-5 rounded-2xl hover:shadow-lg transition-all relative overflow-hidden bg-gradient-to-br ${t.bg} border-0`} data-testid={`game-card-${g.id}`}>
                 <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/40" />
                 <div className="relative">
                   <div className="flex items-start justify-between mb-4">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${t.pill}`}>{g.category}</span>
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${t.pill}`}>{catLabel}</span>
                     {!g.active && <Badge variant="outline" className="rounded-full bg-white/70">Inactive</Badge>}
                   </div>
                   <div className="mb-3">
@@ -138,11 +157,25 @@ export default function Games() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="rounded-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="text-2xl font-black">{editing ? "Edit" : "New"} Game</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="text-2xl font-black">{editing ? "Edit" : "New"} Item</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Name*</Label><Input data-testid="game-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Category</Label><Input data-testid="game-category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></div>
+              <div>
+                <Label>Category*</Label>
+                <select
+                  data-testid="game-category"
+                  value={form.category}
+                  onChange={(e) => {
+                    const cat = e.target.value;
+                    setForm({ ...form, category: cat, gst_category: gstFor(cat) });
+                  }}
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {ITEM_CATEGORIES.map((c) => <option key={c.v} value={c.v}>{c.label}</option>)}
+                </select>
+                <div className="text-[10px] text-muted-foreground mt-1">Aur category chahiye to "Other" ya "Miscellaneous" me daal do</div>
+              </div>
               <div><Label>Duration (min)</Label><Input type="number" data-testid="game-duration" value={form.duration_min || ""} onChange={(e) => setForm({ ...form, duration_min: e.target.value })} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -160,10 +193,14 @@ export default function Games() {
                   onChange={(e) => setForm({ ...form, gst_category: e.target.value })}
                 >
                   <option value="activity">Activity / Ride (18%)</option>
-                  <option value="food">Food &amp; Beverage (5%)</option>
-                  <option value="goods">Merchandise / Goods (18%)</option>
+                  <option value="food">Food & Beverage (5%)</option>
+                  <option value="room">Room / Stay (12%)</option>
+                  <option value="clothing">Clothing (12%)</option>
+                  <option value="merchandise">Merchandise (18%)</option>
+                  <option value="goods">Goods (18%)</option>
+                  <option value="other">Other (18%)</option>
                 </select>
-                <div className="text-[10px] text-muted-foreground mt-1">Bill par yeh rate auto lagegi</div>
+                <div className="text-[10px] text-muted-foreground mt-1">Internal record ke liye — customer bill par hide rehta hai</div>
               </div>
               <div>
                 <Label>HSN / SAC code</Label>

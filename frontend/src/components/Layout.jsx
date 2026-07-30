@@ -14,7 +14,7 @@ const NAV = [
   { to: "/visit", label: "New Bill", icon: Receipt, testid: "nav-visit", perm: "visit" },
   { to: "/bills", label: "Bills", icon: Receipt, testid: "nav-bills", perm: "bills" },
   { to: "/customers", label: "Customers", icon: Contact, testid: "nav-customers", perm: "customers" },
-  { to: "/games", label: "Games / Activities", icon: Gamepad2, testid: "nav-games", perm: "games" },
+  { to: "/games", label: "Items / Activities", icon: Gamepad2, testid: "nav-games", perm: "games" },
   { to: "/packages", label: "Packages", icon: PartyPopper, testid: "nav-packages", perm: "packages" },
   { to: "/attendance", label: "Attendance", icon: UserCheck, testid: "nav-attendance", perm: "attendance" },
   { to: "/staff", label: "Staff", icon: Users, testid: "nav-staff", perm: "staff", adminOnly: true },
