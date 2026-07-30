@@ -83,17 +83,24 @@ Added later:
 5. When ready for social auto-sync, apply for Meta Business API access
 
 ## Changelog
+### 2026-07-30 — Phase A quick wins (bug fixes + branding + UX)
+- **Excel inquiry disappearing bug** — re-verified fixed (soft-delete fix from 2026-07-29 iter-15 stands; imported rows persist across multiple GETs; is_deleted=false by default).
+- **Server auto-wake** — new lightweight `/api/health` endpoint; frontend pings on mount + every 4 min to keep backend warm; no more perceived cold-start.
+- **Games → Items / Activities** rename — sidebar + page title updated. New **Category dropdown** with 7 options (Activities / Games / Food & Beverage / Rooms / Miscellaneous / Merchandise / Other). Category auto-sets GST rate. GST dropdown expanded to 7 rates.
+- **Payment audit trail** — new methods (RTGS/NEFT, Net Banking, Cheque) + compulsory `payment_reference` + `payment_at` + `checked_by` when any non-cash method is marked paid. Cash still simple.
+- **Prebook pax multiplier** — increasing pax now auto-multiplies qty for game/item lines; packages stay at qty=1.
+- **Prebook Booking Summary** moved to BOTTOM of page (single column layout).
+- **Convert-to-bill** — now directly navigates to the new bill on success.
+- **Prebook lock after billing** — once a prebooking has been converted to a bill, only admin can further edit status. Non-admin sees a "Locked" banner and disabled dropdown. Backend also returns 403 on non-admin edits post-conversion.
+- **Funland branding** — public prebooking header polished (Fun/land + Adventure Park), WhatsApp/SMS confirmation message rebranded with Funland emojis + park name.
+
+### 2026-07-29 — Soft-delete for inquiries (data safety)
+Inquiries can never be permanently deleted from the app. DELETE = soft-archive; POST /restore = un-archive. All read paths filter is_deleted=true.
+
 ### 2026-07-28 — Marketing Team Report + fair-share allotment
-- **Fair-share round-robin** (`_pick_next_marketing_exec`) — new inquiries auto-go to the exec with the FEWEST open (new + contacted) inquiries. Ties broken by fewest-total and stable RR counter — truly barabar allotment.
-- **New endpoint `/api/marketing/report`** returning per-exec: assigned, new, contacted, converted, lost, conversion_rate, remarks_added, avg_response_hours, source_breakdown, day_trend. Presets: today / week / month / year / all + custom `from` & `to`.
-- **New endpoint `/api/marketing/report.xlsx`** — multi-sheet workbook (Summary + one sheet per exec with source breakdown & daily trend).
-- **New Marketing → Team Report tab** — 6 preset buttons, custom-range date inputs, 4 KPI cards, medal-badged leaderboard table with TOTAL row, Assigned vs Converted bar chart, one-click **Download Excel**, **Share via WhatsApp** (wa.me deep-link with formatted summary), and native **Share** (uses `navigator.share` on mobile, falls back to copy).
-- Existing "Compose Campaign" flow preserved in the **Campaigns** tab.
+- Least-loaded round-robin, `/api/marketing/report`, XLSX download, WhatsApp/native share
 
 ### 2026-07-27 (v4) — Auto Inquiries: WhatsApp + SMS + Instagram + Facebook
-- Secured webhook with per-park secret; multi-format payload parsing (Twilio, Android SMS Forwarder, Meta Cloud API, Zapier); Meta verify endpoint.
-- Frontend Channel Setup modal with 5 tabbed setup guides.
-
 ### 2026-07-27 (v3) — Multi-category package split · UPI everywhere · Lenient Excel import
 ### 2026-07-27 — Indian GST compliance + Inquiries Excel v1
 ### 2026-07-26 — Dashboard "Sales Mix" upgrade
