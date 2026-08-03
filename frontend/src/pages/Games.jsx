@@ -14,13 +14,11 @@ import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Gamepad2 } from "lucide-react";
 
 const ITEM_CATEGORIES = [
-  { v: "activities",    label: "Activities / Rides",     gst: "activity" },
-  { v: "games",         label: "Games",                   gst: "activity" },
-  { v: "food",          label: "Food & Beverage",         gst: "food" },
-  { v: "rooms",         label: "Rooms / Stay",            gst: "room" },
-  { v: "miscellaneous", label: "Miscellaneous",           gst: "other" },
-  { v: "merchandise",   label: "Merchandise",             gst: "merchandise" },
-  { v: "other",         label: "Other",                   gst: "other" },
+  { v: "entry",       label: "Entry / Ticket",       gst: "activity" },
+  { v: "food",        label: "Food & Beverage",       gst: "food" },
+  { v: "activities",  label: "Activities / Games",    gst: "activity" },
+  { v: "dress",       label: "Dress / Clothing",      gst: "clothing" },
+  { v: "others",      label: "Others",                gst: "other" },
 ];
 const gstFor = (cat) => (ITEM_CATEGORIES.find((c) => c.v === cat) || ITEM_CATEGORIES[0]).gst;
 
@@ -99,17 +97,21 @@ export default function Games() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
           {list.map((g) => {
             const themes = {
-              "activities":    { bg: "from-amber-100 to-yellow-100", accent: "text-amber-700", pill: "bg-amber-500 text-white" },
-              "games":         { bg: "from-purple-100 to-fuchsia-100", accent: "text-fuchsia-700", pill: "bg-fuchsia-500 text-white" },
-              "food":          { bg: "from-rose-100 to-pink-100", accent: "text-rose-700", pill: "bg-rose-500 text-white" },
-              "rooms":         { bg: "from-cyan-100 to-blue-100", accent: "text-cyan-700", pill: "bg-cyan-500 text-white" },
-              "merchandise":   { bg: "from-indigo-100 to-purple-100", accent: "text-indigo-700", pill: "bg-indigo-500 text-white" },
-              "miscellaneous": { bg: "from-slate-100 to-gray-100", accent: "text-slate-700", pill: "bg-slate-500 text-white" },
-              // Legacy support for existing records
+              "entry":         { bg: "from-blue-100 to-sky-100",       accent: "text-blue-700",    pill: "bg-blue-500 text-white" },
+              "food":          { bg: "from-rose-100 to-pink-100",      accent: "text-rose-700",    pill: "bg-rose-500 text-white" },
+              "activities":    { bg: "from-amber-100 to-yellow-100",   accent: "text-amber-700",   pill: "bg-amber-500 text-white" },
+              "dress":         { bg: "from-violet-100 to-purple-100",  accent: "text-violet-700",  pill: "bg-violet-500 text-white" },
+              "others":        { bg: "from-slate-100 to-gray-100",     accent: "text-slate-700",   pill: "bg-slate-500 text-white" },
+              // Legacy support
               "Adventure": { bg: "from-orange-100 to-red-100", accent: "text-red-600", pill: "bg-red-500 text-white" },
               "Water": { bg: "from-cyan-100 to-blue-100", accent: "text-cyan-700", pill: "bg-cyan-500 text-white" },
               "Ride": { bg: "from-amber-100 to-yellow-100", accent: "text-amber-700", pill: "bg-amber-500 text-white" },
               "Games": { bg: "from-purple-100 to-fuchsia-100", accent: "text-fuchsia-700", pill: "bg-fuchsia-500 text-white" },
+              "games": { bg: "from-purple-100 to-fuchsia-100", accent: "text-fuchsia-700", pill: "bg-fuchsia-500 text-white" },
+              "rooms": { bg: "from-cyan-100 to-blue-100", accent: "text-cyan-700", pill: "bg-cyan-500 text-white" },
+              "miscellaneous": { bg: "from-slate-100 to-gray-100", accent: "text-slate-700", pill: "bg-slate-500 text-white" },
+              "merchandise": { bg: "from-indigo-100 to-purple-100", accent: "text-indigo-700", pill: "bg-indigo-500 text-white" },
+              "other": { bg: "from-slate-100 to-gray-100", accent: "text-slate-700", pill: "bg-slate-500 text-white" },
             };
             const t = themes[g.category] || { bg: "from-emerald-100 to-teal-100", accent: "text-emerald-700", pill: "bg-emerald-500 text-white" };
             const catLabel = (ITEM_CATEGORIES.find((c) => c.v === g.category) || {}).label || g.category;

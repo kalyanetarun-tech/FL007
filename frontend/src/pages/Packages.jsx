@@ -29,13 +29,15 @@ const empty = { name: "", type: "birthday", category: "", price: 0, offer_price:
 export default function Packages() {
   const { isAdmin } = useAuth();
   const [list, setList] = useState([]);
+  const [items, setItems] = useState([]);       // items from /api/games to pick into gst_split
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editing, setEditing] = useState(null);
   const [filter, setFilter] = useState("all");
 
   const load = () => api.get("/packages").then((r) => setList(r.data)).catch(() => {});
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api.get("/games").then((r) => setItems(r.data.filter((g) => g.active))).catch(() => {}); }, []);
 
   // Collect unique categories from the list
   const categories = Array.from(new Set(list.map((p) => (p.category || "").trim()).filter(Boolean))).sort();
@@ -73,6 +75,17 @@ export default function Packages() {
     setOpen(true);
   };
   const addSplitRow = () => setForm((f) => ({ ...f, gst_split: [...(f.gst_split || []), { label: "", category: "activity", amount: 0 }] }));
+  // Map item categories from Items page (entry/food/activities/dress/others) → backend GST category
+  const ITEM_TO_GST = { entry: "activity", food: "food", activities: "activity", dress: "clothing", others: "other" };
+  const addItemToSplit = (item) => {
+    const gcat = ITEM_TO_GST[(item.category || "").toLowerCase()] || item.gst_category || "activity";
+    const price = +item.offer_price || +item.price || 0;
+    setForm((f) => ({
+      ...f,
+      gst_split: [...(f.gst_split || []), { label: item.name, category: gcat, amount: price, item_ref_id: item.id }],
+    }));
+    toast.success(`Added ${item.name}`);
+  };
   const updateSplitRow = (i, patch) => setForm((f) => ({ ...f, gst_split: (f.gst_split || []).map((r, idx) => idx === i ? { ...r, ...patch } : r) }));
   const removeSplitRow = (i) => setForm((f) => ({ ...f, gst_split: (f.gst_split || []).filter((_, idx) => idx !== i) }));
   const autoFillFromInclusions = () => {
@@ -217,8 +230,9 @@ export default function Packages() {
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <Label className="text-xs uppercase tracking-widest font-black">GST Split (invoice pe alag-alag lines)</Label>
                 <div className="flex gap-2">
-                  <Button type="button" size="sm" variant="outline" onClick={autoFillFromInclusions} className="h-8 text-xs" data-testid="pkg-autofill-btn">Auto-fill from inclusions</Button>
-                  <Button type="button" size="sm" onClick={addSplitRow} className="h-8 text-xs bg-accent hover:bg-accent/90" data-testid="pkg-add-split-btn"><Plus className="h-3 w-3 mr-1" /> Add line</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setPickerOpen(true)} className="h-8 text-xs" data-testid="pkg-pick-items-btn">📦 Pick from Items</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={autoFillFromInclusions} className="h-8 text-xs" data-testid="pkg-autofill-btn">Auto-fill</Button>
+                  <Button type="button" size="sm" onClick={addSplitRow} className="h-8 text-xs bg-accent hover:bg-accent/90" data-testid="pkg-add-split-btn"><Plus className="h-3 w-3 mr-1" /> Blank line</Button>
                 </div>
               </div>
               <div className="text-[11px] text-muted-foreground">
@@ -280,6 +294,46 @@ export default function Packages() {
             <Button variant="outline" onClick={() => setOpen(false)} className="rounded-full">Cancel</Button>
             <Button data-testid="pkg-save" onClick={save} className="rounded-full bg-accent hover:bg-accent/90">Save</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent className="rounded-2xl max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="pkg-picker-dialog">
+          <DialogHeader><DialogTitle className="text-2xl font-black">Pick items to include</DialogTitle></DialogHeader>
+          <div className="text-xs text-muted-foreground mb-3">Category se auto GST lag jayegi. Multiple items add kar sakte ho — price bhi baad me change kar sakte ho.</div>
+          {items.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-8">Koi item nahi hai. Pehle <b>Items / Activities</b> page pe items banao.</div>
+          ) : (
+            <div className="space-y-4">
+              {["entry", "food", "activities", "dress", "others"].map((cat) => {
+                const rows = items.filter((i) => (i.category || "").toLowerCase() === cat);
+                if (rows.length === 0) return null;
+                return (
+                  <div key={cat} data-testid={`pkg-picker-group-${cat}`}>
+                    <div className="text-xs uppercase tracking-widest font-black text-secondary mb-2">{cat}</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {rows.map((it) => (
+                        <button
+                          key={it.id}
+                          data-testid={`pkg-picker-item-${it.id}`}
+                          type="button"
+                          onClick={() => addItemToSplit(it)}
+                          className="text-left p-3 rounded-xl border-2 border-border hover:border-accent hover:bg-accent/5 transition-colors flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-bold truncate">{it.name}</div>
+                            <div className="text-[10px] uppercase text-muted-foreground tracking-widest">{cat}</div>
+                          </div>
+                          <div className="text-lg font-black text-accent tabular-nums">{inr(+it.offer_price || +it.price || 0)}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              <Button type="button" onClick={() => setPickerOpen(false)} data-testid="pkg-picker-done" className="w-full rounded-full bg-accent hover:bg-accent/90 font-black">Done</Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
