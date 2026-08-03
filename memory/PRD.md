@@ -83,7 +83,16 @@ Added later:
 5. When ready for social auto-sync, apply for Meta Business API access
 
 ## Changelog
-### 2026-07-30 — Phase A quick wins (bug fixes + branding + UX)
+### 2026-08-03 — Phase B: Reports · Expenses · Fullscreen QR · Print modes
+- **Reports section** (new /reports admin route) with 4 tabs: Sales, GSTR-3B, Payment Mode, Expenses. Each has 6 date-range presets (today/week/month/year/all/custom), KPI cards, charts (bar/pie), WhatsApp + native share, and unified "Full Excel" download that produces one workbook with 4 sheets.
+- **Expenses CRUD** — new collection + endpoints; frontend dialog to add/delete; category + payment-method + vendor tracked.
+- **Fullscreen QR modal** on Bill Detail — one tap opens a large UPI QR encoding the exact bill total via UPI intent (`upi://pay?...&am=<total>`). Uses uploaded QR photo when set, else generates live.
+- **Print modes** — customer receipt (`?mode=receipt` hides GST/HSN/customer GSTIN/state) vs full tax invoice (default). Bill Detail now has 2 buttons — Customer Receipt + Tax Invoice.
+
+### 2026-07-30 — Phase A quick wins
+Excel persistence re-verified · /api/health warm-up · Games → Items/Activities with new categories · Payment audit compulsory for non-cash paid · Prebook pax multiplier + summary at bottom + convert-to-bill navigation + admin-only lock after billing · Funland branding polish.
+
+### 2026-07-29 — Soft-delete for inquiries · 2026-07-28 — Marketing Team Report · 2026-07-27 (v3/v4) — GST split, UPI, Excel, auto-inquiries webhook · 2026-07-27 — Indian GST compliance · 2026-07-26 — Dashboard Sales Mix
 - **Excel inquiry disappearing bug** — re-verified fixed (soft-delete fix from 2026-07-29 iter-15 stands; imported rows persist across multiple GETs; is_deleted=false by default).
 - **Server auto-wake** — new lightweight `/api/health` endpoint; frontend pings on mount + every 4 min to keep backend warm; no more perceived cold-start.
 - **Games → Items / Activities** rename — sidebar + page title updated. New **Category dropdown** with 7 options (Activities / Games / Food & Beverage / Rooms / Miscellaneous / Merchandise / Other). Category auto-sets GST rate. GST dropdown expanded to 7 rates.
