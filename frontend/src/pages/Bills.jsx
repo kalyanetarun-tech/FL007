@@ -36,7 +36,7 @@ export function BillsList() {
                 <div className="text-3xl font-black text-accent">{inr(b.total)}</div>
                 <div className="text-xs text-muted-foreground mt-2">{b.created_at ? new Date(b.created_at).toLocaleString() : ""}</div>
               </Link>
-              <Button data-testid={`bill-quick-print-${b.id}`} onClick={(e) => openPrint(b.id, e)} variant="outline" size="sm" className="w-full mt-3 rounded-full font-bold border-accent text-accent hover:bg-accent hover:text-accent-foreground">
+              <Button data-testid={`bill-quick-print-${b.id}`} onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(`/bills/${b.id}/print?mode=receipt`, "_blank"); }} variant="outline" size="sm" className="w-full mt-3 rounded-full font-bold border-accent text-accent hover:bg-accent hover:text-accent-foreground">
                 <Printer className="h-4 w-4 mr-1" /> Print Receipt
               </Button>
             </Card>
@@ -50,6 +50,7 @@ export function BillDetail() {
   const { id } = useParams();
   const [bill, setBill] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [qrOpen, setQrOpen] = useState(false);
   const [error, setError] = useState(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [sendChannel, setSendChannel] = useState("whatsapp");
@@ -94,7 +95,8 @@ export function BillDetail() {
         action={
           <div className="flex flex-wrap gap-2">
             {bill.payment_status === "pending" && <Button data-testid="mark-paid" onClick={markPaid} className="rounded-full bg-emerald-500 hover:bg-emerald-600 text-white">Mark Paid</Button>}
-            <Button data-testid="print-btn" onClick={() => window.open(`/bills/${bill.id}/print`, "_blank")} className="rounded-full bg-accent hover:bg-accent/90 text-accent-foreground font-bold h-11 px-6"><Printer className="h-4 w-4 mr-1" /> Print Receipt</Button>
+            <Button data-testid="print-receipt-btn" onClick={() => window.open(`/bills/${bill.id}/print?mode=receipt`, "_blank")} variant="outline" className="rounded-full font-bold h-11 px-4"><Printer className="h-4 w-4 mr-1" /> Customer Receipt</Button>
+            <Button data-testid="print-invoice-btn" onClick={() => window.open(`/bills/${bill.id}/print?mode=invoice`, "_blank")} className="rounded-full bg-accent hover:bg-accent/90 text-accent-foreground font-bold h-11 px-4"><Printer className="h-4 w-4 mr-1" /> Tax Invoice</Button>
             <Button data-testid="send-btn" onClick={() => setSendOpen(true)} variant="outline" className="rounded-full"><Send className="h-4 w-4 mr-1" /> Send</Button>
           </div>
         }
@@ -167,8 +169,15 @@ export function BillDetail() {
         </Card>
 
         <div className="space-y-4">
-          <Card className="p-5 rounded-2xl">
-            <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary mb-3">Pay Now</div>
+          <Card className="p-5 rounded-2xl" data-testid="bill-pay-card">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs uppercase tracking-[0.2em] font-bold text-secondary">Pay Now</div>
+              {(settingsSafe.upi_qr_url || settingsSafe.upi_id) && (
+                <Button data-testid="bill-fullscreen-qr" size="sm" onClick={() => setQrOpen(true)} className="rounded-full bg-primary hover:bg-primary/90 h-8 px-3 font-bold text-xs">
+                  Fullscreen QR
+                </Button>
+              )}
+            </div>
             {bill.razorpay_link ? (
               <a href={bill.razorpay_link} target="_blank" rel="noreferrer" className="block p-4 border-2 border-accent rounded-xl text-center font-bold hover:bg-accent hover:text-accent-foreground transition-colors mb-3" data-testid="rzp-link">
                 Pay via Razorpay <ExternalLink className="inline h-4 w-4" />
@@ -195,6 +204,31 @@ export function BillDetail() {
           )}
         </div>
       </div>
+
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent className="rounded-2xl max-w-lg" data-testid="qr-fullscreen-modal">
+          <DialogHeader><DialogTitle className="text-2xl font-black text-center">Pay {inr(bill.total)}</DialogTitle></DialogHeader>
+          <div className="p-4 flex flex-col items-center">
+            {settingsSafe.upi_qr_url ? (
+              <img src={settingsSafe.upi_qr_url} alt="UPI QR" className="w-72 h-72 object-contain bg-white rounded-2xl border-4 border-accent shadow-2xl" data-testid="qr-fullscreen-img" />
+            ) : (
+              <div className="w-72 h-72 bg-white rounded-2xl border-4 border-accent p-3 shadow-2xl">
+                <QRCode
+                  value={`upi://pay?pa=${encodeURIComponent(settingsSafe.upi_id || "")}&pn=${encodeURIComponent(settingsSafe.firm_name || settingsSafe.park_name || "Funland")}&am=${Number(bill.total).toFixed(2)}&cu=INR&tn=${encodeURIComponent("Bill " + bill.bill_no)}`}
+                  size={264}
+                  data-testid="qr-fullscreen-svg"
+                />
+              </div>
+            )}
+            <div className="mt-4 text-center">
+              <div className="text-xs uppercase tracking-widest font-bold text-muted-foreground">UPI ID</div>
+              <div className="text-lg font-black text-primary">{settingsSafe.upi_id}</div>
+              <div className="text-4xl font-black text-accent mt-3 tabular-nums">{inr(bill.total)}</div>
+              <div className="text-xs text-muted-foreground mt-2">Scan any UPI app → Pay this exact amount</div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent className="rounded-2xl">

@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, MessageSquare, Gamepad2, PartyPopper, Receipt,
-  UserCheck, Users, Megaphone, Settings as SettingsIcon, LogOut, Menu, X, Contact, CalendarCheck
+  UserCheck, Users, Megaphone, Settings as SettingsIcon, LogOut, Menu, X, Contact, CalendarCheck, BarChart3
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -19,6 +19,7 @@ const NAV = [
   { to: "/attendance", label: "Attendance", icon: UserCheck, testid: "nav-attendance", perm: "attendance" },
   { to: "/staff", label: "Staff", icon: Users, testid: "nav-staff", perm: "staff", adminOnly: true },
   { to: "/marketing", label: "Marketing", icon: Megaphone, testid: "nav-marketing", perm: "marketing", adminOnly: true },
+  { to: "/reports", label: "Reports", icon: BarChart3, testid: "nav-reports", perm: "reports", adminOnly: true },
   { to: "/settings", label: "Settings", icon: SettingsIcon, testid: "nav-settings", perm: "settings", adminOnly: true },
 ];
 

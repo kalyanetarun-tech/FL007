@@ -890,6 +890,275 @@ async def import_inquiries_xlsx(file: UploadFile = File(...), user: dict = Depen
     return {"ok": True, "inserted": total_inserted, "skipped": total_skipped, "errors": errors[:20]}
 
 
+# ---------------- Expenses ----------------
+class ExpenseIn(BaseModel):
+    date: str                          # ISO YYYY-MM-DD
+    category: str = "other"           # rent, salary, utility, food, maintenance, marketing, other
+    description: str = ""
+    amount: float
+    payment_method: str = "cash"      # cash / upi / bank / cheque / other
+    payment_reference: Optional[str] = ""
+    vendor: Optional[str] = ""
+    bill_url: Optional[str] = ""       # attached vendor bill image URL
+
+@api.get("/expenses")
+async def list_expenses(user: dict = Depends(get_current_user)):
+    return await db.expenses.find({}, {"_id": 0}).sort("date", -1).to_list(5000)
+
+@api.post("/expenses")
+async def create_expense(data: ExpenseIn, user: dict = Depends(get_current_user)):
+    doc = {"id": new_id(), **data.model_dump(), "created_by": user["id"], "created_by_name": user["name"], "created_at": now_iso()}
+    await db.expenses.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.patch("/expenses/{eid}")
+async def update_expense(eid: str, data: ExpenseIn, user: dict = Depends(get_current_user)):
+    await db.expenses.update_one({"id": eid}, {"$set": data.model_dump()})
+    return await db.expenses.find_one({"id": eid}, {"_id": 0})
+
+@api.delete("/expenses/{eid}")
+async def delete_expense(eid: str, user: dict = Depends(get_current_user)):
+    r = await db.expenses.delete_one({"id": eid})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Not found")
+    return {"ok": True}
+
+
+# ---------------- Business Reports (Sales / GST-3B / Payment / Expense) ----------------
+async def _fetch_bills_in_range(f_iso: str, t_iso: str):
+    """Bills with created_at in [f_iso, t_iso). Only paid bills contribute to revenue/GST."""
+    return await db.bills.find({"created_at": {"$gte": f_iso, "$lt": t_iso}}, {"_id": 0}).to_list(50000)
+
+@api.get("/reports/sales")
+async def sales_report(from_date: Optional[str] = Query(None, alias="from"), to_date: Optional[str] = Query(None, alias="to"), preset: Optional[str] = None, user: dict = Depends(get_current_user)):
+    f_iso, t_iso, label = _parse_range_yyyymmdd(from_date, to_date, preset)
+    bills = await _fetch_bills_in_range(f_iso, t_iso)
+    total_revenue = 0.0
+    total_bills = 0
+    total_paid = 0
+    total_pending = 0
+    category_totals = {}      # by item category (food/activity/room/…): {taxable, tax, gross}
+    daily = {}                # date → revenue
+    top_items = {}
+    for b in bills:
+        total_bills += 1
+        if b.get("payment_status") == "paid":
+            amt = float(b.get("total") or 0)
+            total_revenue += amt
+            total_paid += 1
+            d = (b.get("created_at") or "")[:10]
+            if d: daily[d] = daily.get(d, 0) + amt
+        else:
+            total_pending += 1
+        for it in b.get("items", []):
+            cat = (it.get("category") or "other").lower()
+            gross = float(it.get("price") or 0) * int(it.get("qty") or 0)
+            rate = float(it.get("gst_percent") or 0)
+            taxable = gross / (1 + rate/100) if rate else gross
+            tax = gross - taxable
+            slot = category_totals.setdefault(cat, {"taxable": 0.0, "tax": 0.0, "gross": 0.0, "count": 0})
+            slot["taxable"] += taxable
+            slot["tax"] += tax
+            slot["gross"] += gross
+            slot["count"] += int(it.get("qty") or 0)
+            top_items[it.get("name", "?")] = top_items.get(it.get("name", "?"), 0) + int(it.get("qty") or 0)
+    daily_list = sorted([{"date": d, "revenue": round(v, 2)} for d, v in daily.items()], key=lambda x: x["date"])
+    top = sorted([{"name": k, "qty": v} for k, v in top_items.items()], key=lambda x: -x["qty"])[:10]
+    for k, v in category_totals.items():
+        v["taxable"] = round(v["taxable"], 2)
+        v["tax"] = round(v["tax"], 2)
+        v["gross"] = round(v["gross"], 2)
+    return {
+        "from": f_iso, "to": t_iso, "label": label,
+        "total_revenue": round(total_revenue, 2),
+        "total_bills": total_bills,
+        "paid_bills": total_paid,
+        "pending_bills": total_pending,
+        "avg_bill_value": round(total_revenue / total_paid, 2) if total_paid else 0,
+        "category_totals": category_totals,
+        "daily": daily_list,
+        "top_items": top,
+    }
+
+@api.get("/reports/gstr3b")
+async def gstr3b_report(from_date: Optional[str] = Query(None, alias="from"), to_date: Optional[str] = Query(None, alias="to"), preset: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """GSTR-3B style outward supplies summary: per-rate taxable, CGST, SGST, IGST."""
+    f_iso, t_iso, label = _parse_range_yyyymmdd(from_date, to_date, preset)
+    bills = await _fetch_bills_in_range(f_iso, t_iso)
+    by_rate = {}
+    total_taxable = 0.0
+    total_cgst = 0.0
+    total_sgst = 0.0
+    total_igst = 0.0
+    invoices = 0
+    for b in bills:
+        if b.get("payment_status") != "paid":
+            continue
+        invoices += 1
+        for br in (b.get("gst_breakup") or []):
+            rate = float(br.get("rate") or 0)
+            slot = by_rate.setdefault(rate, {"rate": rate, "taxable": 0.0, "cgst": 0.0, "sgst": 0.0, "igst": 0.0})
+            slot["taxable"] += float(br.get("taxable") or 0)
+            slot["cgst"] += float(br.get("cgst") or 0)
+            slot["sgst"] += float(br.get("sgst") or 0)
+            slot["igst"] += float(br.get("igst") or 0)
+            total_taxable += float(br.get("taxable") or 0)
+            total_cgst += float(br.get("cgst") or 0)
+            total_sgst += float(br.get("sgst") or 0)
+            total_igst += float(br.get("igst") or 0)
+    breakup = sorted([{**v, "taxable": round(v["taxable"], 2), "cgst": round(v["cgst"], 2), "sgst": round(v["sgst"], 2), "igst": round(v["igst"], 2)} for v in by_rate.values()], key=lambda x: x["rate"])
+    return {
+        "from": f_iso, "to": t_iso, "label": label,
+        "invoice_count": invoices,
+        "total_taxable": round(total_taxable, 2),
+        "total_cgst": round(total_cgst, 2),
+        "total_sgst": round(total_sgst, 2),
+        "total_igst": round(total_igst, 2),
+        "total_tax": round(total_cgst + total_sgst + total_igst, 2),
+        "rate_wise": breakup,
+    }
+
+@api.get("/reports/payment-mode")
+async def payment_mode_report(from_date: Optional[str] = Query(None, alias="from"), to_date: Optional[str] = Query(None, alias="to"), preset: Optional[str] = None, user: dict = Depends(get_current_user)):
+    f_iso, t_iso, label = _parse_range_yyyymmdd(from_date, to_date, preset)
+    bills = await _fetch_bills_in_range(f_iso, t_iso)
+    by_mode = {}
+    total_paid = 0.0
+    total_pending = 0.0
+    for b in bills:
+        method = b.get("payment_method") or "cash"
+        amt = float(b.get("total") or 0)
+        slot = by_mode.setdefault(method, {"method": method, "paid_amount": 0.0, "paid_count": 0, "pending_amount": 0.0, "pending_count": 0})
+        if b.get("payment_status") == "paid":
+            slot["paid_amount"] += amt
+            slot["paid_count"] += 1
+            total_paid += amt
+        else:
+            slot["pending_amount"] += amt
+            slot["pending_count"] += 1
+            total_pending += amt
+    modes = sorted([{**v, "paid_amount": round(v["paid_amount"], 2), "pending_amount": round(v["pending_amount"], 2)} for v in by_mode.values()], key=lambda x: -x["paid_amount"])
+    return {
+        "from": f_iso, "to": t_iso, "label": label,
+        "total_paid": round(total_paid, 2),
+        "total_pending": round(total_pending, 2),
+        "modes": modes,
+    }
+
+@api.get("/reports/expenses")
+async def expense_report(from_date: Optional[str] = Query(None, alias="from"), to_date: Optional[str] = Query(None, alias="to"), preset: Optional[str] = None, user: dict = Depends(get_current_user)):
+    f_iso, t_iso, label = _parse_range_yyyymmdd(from_date, to_date, preset)
+    rows = await db.expenses.find({"date": {"$gte": f_iso[:10], "$lt": t_iso[:10]}}, {"_id": 0}).sort("date", -1).to_list(20000)
+    by_cat = {}
+    by_month = {}
+    total = 0.0
+    for r in rows:
+        cat = (r.get("category") or "other").lower()
+        amt = float(r.get("amount") or 0)
+        total += amt
+        by_cat[cat] = by_cat.get(cat, 0) + amt
+        m = r.get("date", "")[:7]
+        by_month[m] = by_month.get(m, 0) + amt
+    cats = sorted([{"category": k, "amount": round(v, 2)} for k, v in by_cat.items()], key=lambda x: -x["amount"])
+    months = sorted([{"month": k, "amount": round(v, 2)} for k, v in by_month.items()], key=lambda x: x["month"])
+    return {
+        "from": f_iso, "to": t_iso, "label": label,
+        "total": round(total, 2),
+        "count": len(rows),
+        "by_category": cats,
+        "by_month": months,
+        "expenses": rows,
+    }
+
+@api.get("/reports/business.xlsx")
+async def business_xlsx(from_date: Optional[str] = Query(None, alias="from"), to_date: Optional[str] = Query(None, alias="to"), preset: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """One workbook, four sheets: Sales, GSTR-3B, Payment Modes, Expenses."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from io import BytesIO
+
+    sales   = await sales_report(from_date=from_date, to_date=to_date, preset=preset, user=user)
+    gst     = await gstr3b_report(from_date=from_date, to_date=to_date, preset=preset, user=user)
+    pay     = await payment_mode_report(from_date=from_date, to_date=to_date, preset=preset, user=user)
+    exp     = await expense_report(from_date=from_date, to_date=to_date, preset=preset, user=user)
+
+    wb = Workbook()
+    settings = await _get_settings()
+    park = settings.get("firm_name") or settings.get("park_name") or "Funland"
+
+    def header(ws, cols):
+        ws.append(cols)
+        for c in ws[ws.max_row]:
+            c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="FF7A00")
+
+    # -- Sales --
+    ws = wb.active; ws.title = "Sales"
+    ws.append([f"{park} — Sales Report", sales["label"]]); ws["A1"].font = Font(bold=True, size=14)
+    ws.append([f"Range: {sales['from']} → {sales['to']}"]); ws.append([])
+    ws.append(["Total revenue", sales["total_revenue"]])
+    ws.append(["Bills paid", sales["paid_bills"]])
+    ws.append(["Bills pending", sales["pending_bills"]])
+    ws.append(["Avg bill value", sales["avg_bill_value"]]); ws.append([])
+    header(ws, ["Category", "Qty", "Taxable", "Tax", "Gross"])
+    for cat, v in sales["category_totals"].items():
+        ws.append([cat, v["count"], v["taxable"], v["tax"], v["gross"]])
+    ws.append([]); header(ws, ["Date", "Revenue"])
+    for d in sales["daily"]:
+        ws.append([d["date"], d["revenue"]])
+    ws.append([]); header(ws, ["Top item", "Qty sold"])
+    for it in sales["top_items"]:
+        ws.append([it["name"], it["qty"]])
+
+    # -- GSTR-3B --
+    ws2 = wb.create_sheet(title="GSTR-3B")
+    ws2.append([f"{park} — GSTR-3B", gst["label"]]); ws2["A1"].font = Font(bold=True, size=14)
+    ws2.append([f"Range: {gst['from']} → {gst['to']}"]); ws2.append([])
+    ws2.append(["Invoices", gst["invoice_count"]])
+    ws2.append(["Total taxable", gst["total_taxable"]])
+    ws2.append(["Total CGST", gst["total_cgst"]])
+    ws2.append(["Total SGST", gst["total_sgst"]])
+    ws2.append(["Total IGST", gst["total_igst"]])
+    ws2.append(["Total tax", gst["total_tax"]]); ws2.append([])
+    header(ws2, ["Rate %", "Taxable value", "CGST", "SGST", "IGST"])
+    for r in gst["rate_wise"]:
+        ws2.append([r["rate"], r["taxable"], r["cgst"], r["sgst"], r["igst"]])
+
+    # -- Payment modes --
+    ws3 = wb.create_sheet(title="Payment Modes")
+    ws3.append([f"{park} — Payment Mode Report", pay["label"]]); ws3["A1"].font = Font(bold=True, size=14)
+    ws3.append([f"Range: {pay['from']} → {pay['to']}"]); ws3.append([])
+    ws3.append(["Total collected (paid)", pay["total_paid"]])
+    ws3.append(["Pending amount", pay["total_pending"]]); ws3.append([])
+    header(ws3, ["Method", "Paid count", "Paid amount", "Pending count", "Pending amount"])
+    for m in pay["modes"]:
+        ws3.append([m["method"], m["paid_count"], m["paid_amount"], m["pending_count"], m["pending_amount"]])
+
+    # -- Expenses --
+    ws4 = wb.create_sheet(title="Expenses")
+    ws4.append([f"{park} — Expense Report", exp["label"]]); ws4["A1"].font = Font(bold=True, size=14)
+    ws4.append([f"Range: {exp['from']} → {exp['to']}"]); ws4.append([])
+    ws4.append(["Total expenses", exp["total"]])
+    ws4.append(["Entries", exp["count"]]); ws4.append([])
+    header(ws4, ["Category", "Amount"])
+    for c in exp["by_category"]:
+        ws4.append([c["category"], c["amount"]])
+    ws4.append([]); header(ws4, ["Date", "Category", "Description", "Vendor", "Method", "Ref", "Amount"])
+    for e in exp["expenses"]:
+        ws4.append([e.get("date",""), e.get("category",""), e.get("description",""), e.get("vendor",""), e.get("payment_method",""), e.get("payment_reference",""), e.get("amount",0)])
+
+    for wsx in wb.worksheets:
+        for col in wsx.columns:
+            wsx.column_dimensions[col[0].column_letter].width = 18
+
+    buf = BytesIO(); wb.save(buf)
+    filename = f"business_report_{sales['from']}_{sales['to'][:10]}.xlsx".replace(" ", "_")
+    return Response(content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+
 # ---------------- Marketing Reports ----------------
 def _parse_range_yyyymmdd(from_date: Optional[str], to_date: Optional[str], preset: Optional[str]):
     """Return (from_iso, to_iso_exclusive, label) for use in Mongo string compare of created_at."""

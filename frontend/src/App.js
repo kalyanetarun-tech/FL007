@@ -15,6 +15,7 @@ import { BillsList, BillDetail } from "@/pages/Bills";
 import Attendance from "@/pages/Attendance";
 import Staff from "@/pages/Staff";
 import Marketing from "@/pages/Marketing";
+import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
 import { CustomersList, CustomerDetail } from "@/pages/Customers";
 import PrintBill from "@/pages/PrintBill";
@@ -67,6 +68,7 @@ function App() {
             <Route path="/attendance" element={<Protected perm="attendance"><Attendance /></Protected>} />
             <Route path="/staff" element={<Protected adminOnly><Staff /></Protected>} />
             <Route path="/marketing" element={<Protected adminOnly><Marketing /></Protected>} />
+            <Route path="/reports" element={<Protected adminOnly><Reports /></Protected>} />
             <Route path="/settings" element={<Protected adminOnly><Settings /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
